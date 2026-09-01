@@ -24,7 +24,7 @@ Success = the person chose consciously — including when they choose to continu
 |---|-------|--------|------|---------------------|
 | 1 | EVENT | `adapters/*` (native) → `core/ingestion/*` (`normalizeEvent` + `createEventCollector`) → `EventSource` port | native + pure TS trust boundary | 1 · Observation |
 | 2 | CONTEXT | `core/engines/context-builder.ts` | pure, state-free | 1 · Observation |
-| 3 | PATTERN | `core/engines/pattern-detector.ts` *(stub logic)* | pure, state-free | 2 · Derived Structure |
+| 3 | PATTERN | `core/engines/pattern-detector.ts` (baseline-aware) + `session-segmenter.ts` + `baseline.ts` | pure, state-free | 2 · Derived Structure |
 | 4 | INTERVENTION CANDIDATE | `core/engines/candidate-generator.ts` *(stub logic)* | pure | 2 · Derived Structure |
 | 5 | INTERVENTION POLICY | `core/engines/policy-engine.ts` **(real maths)** | pure | 3 · Action gate |
 | 6 | INTERVENTION + AWARENESS WINDOW | `core/engines/intervention-factory.ts` *(stub copy)* | pure | 3 · Action |
@@ -55,6 +55,32 @@ native adapter ──pull drainPendingEvents()───┘   · normalizeEvent (
   contract) + `createNativeEventSource` (push channel + pull-time backstop, one
   shared collector).
 
+### Stage 2/3 detail — Context & baseline-aware Pattern
+
+- `context-builder.ts` — pure `(event, preceding, config) -> Context`: time
+  frame, ISO day-of-week, user-configured rest-period flag, and structural
+  sequence metrics (events in the last minute, ms since last unlock, continuous
+  foreground time of the current app — reset by a `Background`/`Terminated`).
+- `session-segmenter.ts` — pure `segmentSessions(events)`: folds the stream into
+  `UsageSession` spans (unlock/first-foreground → lock/off/long-idle-gap) with
+  structural counts only (duration, app switches, event count, longest repeated
+  input run). No labels.
+- `baseline.ts` — `computeBaseline(sessions)` / `buildBaselineFromEvents(events)`:
+  a `BehavioralBaseline` = per-time-frame robust `DistributionSummary` (median +
+  MAD-based spread + p90) of each metric. Structural, local-first, recomputed
+  from a trailing window (`app/baseline/local-baseline-provider.ts` caches it and
+  feeds `PipelineDeps.getBaseline`).
+- `pattern-detector.ts` — `detectPatterns(events, context, baseline, …)` compares
+  the live observation against *this person's* distribution for the current time
+  frame:
+  - `confidence = maturity × logisticTail(robust z-score)` — a thin baseline →
+    low confidence → downstream leans to Silence (I-02 / I-04);
+  - no usable baseline → conservative cold-start thresholds, confidence hard-capped;
+  - an absolute **floor** per category stops trivial values counting for very
+    light users;
+  - `deviationFromBaselineRatio = observed / baseline median` (a structural
+    ratio, never a verdict); every `structuralName` passes `assertStructuralName`.
+
 ## Decision maths (Stage 5, implemented exactly per spec §4)
 
 ```
@@ -84,7 +110,7 @@ other modules call — a guard throwing means the caller is wrong:
 
 | Guard | Invariants | Called from |
 |-------|-----------|-------------|
-| `assertStructuralName` | I-11, I-07 | `pattern-detector` on every `structuralName` |
+| `assertStructuralName` | I-11, I-07 | `pattern-detector` on every `structuralName` (`baseline`/`session-segmenter` emit metrics only) |
 | `assertNonCoerciveText` | I-12, I-10, I-07 | `intervention-factory`, `awareness-window.viewmodel` |
 | `assertNoJudgment` | I-07 | `reflection-mirror`, `reflection-mirror.viewmodel` |
 | `assertChoiceSymmetry` | I-13 | `app/awareness-window/choice-symmetry.ts` |
@@ -94,15 +120,16 @@ other modules call — a guard throwing means the caller is wrong:
 
 ```
 packages/
-  core/      Pure TS. Contracts + invariants + engines + pipeline. Zero runtime deps.
-  adapters/  Native Event collectors (Kotlin / Swift skeletons — Step 1).
-  app/       Shell UI. Framework-agnostic view-models (.ts, tested) + RN stubs (.tsx).
+  core/      Pure TS. Contracts + invariants + ingestion + engines + pipeline. Zero runtime deps.
+  adapters/  Native Event collectors — Android (Kotlin) & iOS (Swift) reference impl.
+  app/       Shell UI. View-models + ingestion bridge + baseline provider (.ts, tested) + RN stubs (.tsx).
 ```
 
 ## Implementation order
 
-1. **Event Collector** — real Android/iOS adapters → normalized `Event`.
-2. **Context & Pattern Engine** — replace stub detection with baseline-aware logic.
+1. ✅ **Event Collector** — native adapters + `core/ingestion` normalize/collect/de-bounce.
+2. ✅ **Context & Pattern Engine** — baseline-aware detection (`session-segmenter`,
+   `baseline`, `pattern-detector`); `getBaseline` threaded through the pipeline.
 3. **Intervention Policy Engine** — tune weights; multi-pattern arbitration.
 4. **Awareness Window & Choice Symmetry UI** — RN components on the view-models.
 5. **Reflection Mirror** — on-device encrypted store + non-judgmental facts UI.

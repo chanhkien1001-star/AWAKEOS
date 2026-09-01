@@ -9,7 +9,7 @@ import { sequentialIdFactory } from '../src/util/id.ts';
 import { fixedClock } from '../src/util/clock.ts';
 import { assertNoJudgment } from '../src/invariants/invariants.ts';
 
-import { longSession, rapidSwitching, resetEventIds } from './helpers.ts';
+import { longSession, matureBaseline, rapidSwitching, resetEventIds } from './helpers.ts';
 
 const REST_PERIODS = { windows: [{ startHour: 23, endHour: 7 }] };
 
@@ -23,12 +23,16 @@ test('E2E: EVENT -> CONTEXT -> PATTERN -> CANDIDATE -> POLICY -> INTERVENTION ->
   const clock = fixedClock(lastAt + 5_000);
   const store = createMemoryStore();
 
+  // This person's evening sessions usually run ~12 min; tonight's is 40.
+  const baseline = matureBaseline({ now: clock.now(), timeFrame: '18:00-24:00', sessionMinutes: 12 });
+
   const pipeline = createPipeline({
     eventSource: createScriptedEventSource(script),
     choiceProvider: createScriptedChoiceProvider(Array.from({ length: 30 }, () => ({ choice: 'Exit' as const })), ids, clock),
     store,
     ids,
     clock,
+    getBaseline: () => baseline,
     config: { context: { restPeriods: REST_PERIODS } },
   });
 
@@ -83,6 +87,7 @@ test('E2E: "The Return" — leaving an extended session triggers the You-are-her
 
   const ids = sequentialIdFactory('ret');
   const clock = fixedClock(lastAt + 1_000);
+  const baseline = matureBaseline({ now: clock.now(), timeFrame: '18:00-24:00', sessionMinutes: 12 });
 
   const pipeline = createPipeline({
     eventSource: createScriptedEventSource(script),
@@ -90,6 +95,7 @@ test('E2E: "The Return" — leaving an extended session triggers the You-are-her
     store: createMemoryStore(),
     ids,
     clock,
+    getBaseline: () => baseline,
     config: { context: { restPeriods: REST_PERIODS } },
   });
 

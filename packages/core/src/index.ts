@@ -19,6 +19,8 @@ export * from './ingestion/index.ts';
 
 // Pipeline stages (pure functions)
 export * from './engines/context-builder.ts';
+export * from './engines/session-segmenter.ts';
+export * from './engines/baseline.ts';
 export * from './engines/pattern-detector.ts';
 export * from './engines/candidate-generator.ts';
 export * from './engines/policy-engine.ts';

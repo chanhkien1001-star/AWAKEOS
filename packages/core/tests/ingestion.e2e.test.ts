@@ -8,6 +8,7 @@ import { createMemoryStore } from '../src/adapters-stub/memory-store.ts';
 import { createScriptedChoiceProvider } from '../src/adapters-stub/scripted-choice-provider.ts';
 import { fixedClock } from '../src/util/clock.ts';
 import { sequentialIdFactory } from '../src/util/id.ts';
+import { matureBaseline } from './helpers.ts';
 
 const HASH = 'sha256:Reader00_11-22334455667788990011223344556677889900';
 
@@ -43,6 +44,7 @@ test('E2E: raw native signals -> EventCollector -> Pipeline reaches an Awareness
     store: createMemoryStore(),
     ids,
     clock,
+    getBaseline: () => matureBaseline({ now: clock.now(), timeFrame: '18:00-24:00', sessionMinutes: 12 }),
     config: { context: { restPeriods: { windows: [{ startHour: 23, endHour: 7 }] } } },
   });
 

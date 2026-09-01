@@ -24,6 +24,7 @@ import type { Pattern } from '../contracts/pattern.contract.ts';
 import type { ReflectionMirror } from '../contracts/reflection.contract.ts';
 
 import { buildContext, type ContextBuilderOptions } from '../engines/context-builder.ts';
+import { emptyBaseline, type BehavioralBaseline } from '../engines/baseline.ts';
 import { generateCandidate, DEFAULT_CANDIDATE_CONFIG, type CandidateGeneratorConfig } from '../engines/candidate-generator.ts';
 import { buildIntervention } from '../engines/intervention-factory.ts';
 import { decidePolicy, DEFAULT_POLICY_CONFIG, type PolicyConfig, type PolicyTrace } from '../engines/policy-engine.ts';
@@ -59,6 +60,13 @@ export interface PipelineDeps {
   readonly clock: Clock;
   readonly telemetry?: PipelineTelemetry;
   readonly config?: Partial<PipelineConfig>;
+  /**
+   * Supplies the person's `BehavioralBaseline` for Stage 3. Resolved once per
+   * `tick()`. Defaults to an empty baseline, under which Stage 3 runs in
+   * conservative cold-start mode. Wire this to a locally-stored baseline that the
+   * app recomputes on a schedule (`buildBaselineFromEvents`).
+   */
+  readonly getBaseline?: () => BehavioralBaseline | Promise<BehavioralBaseline>;
 }
 
 /** "The Return" — a 2s dark screen with "You are here" after leaving a long session. */
@@ -121,7 +129,7 @@ export function createPipeline(deps: PipelineDeps): Pipeline {
     return [...patterns].sort((a, b) => b.confidenceScore - a.confidenceScore)[0]!;
   }
 
-  async function processEvent(event: Event): Promise<PipelineOutcome> {
+  async function processEvent(event: Event, baseline: BehavioralBaseline): Promise<PipelineOutcome> {
     await deps.store.appendEvent(event); // I-09: persist locally first
 
     const from = event.occurredAt - cfg.lookbackMs;
@@ -131,8 +139,8 @@ export function createPipeline(deps: PipelineDeps): Pipeline {
     const context = buildContext(event, preceding, deps.ids, cfg.context);
     tel.stage('context', { eventId: event.id, contextId: context.id });
 
-    // Stage 3 — PATTERN
-    const patterns = detectPatterns(preceding, context, deps.ids, deps.clock, cfg.pattern);
+    // Stage 3 — PATTERN (compared against the person's own baseline)
+    const patterns = detectPatterns(preceding, context, baseline, deps.ids, deps.clock, cfg.pattern);
     // The Reflection mirror is a neutral mirror of structure: record every
     // detected pattern, independent of what the policy engine later acts on.
     for (const p of patterns) reflectionSamples.push({ pattern: p, context });
@@ -192,8 +200,10 @@ export function createPipeline(deps: PipelineDeps): Pipeline {
     async tick() {
       const events = await deps.eventSource.pull();
       const ordered = [...events].sort((a, b) => a.occurredAt - b.occurredAt);
+      const baseline = deps.getBaseline ? await deps.getBaseline() : emptyBaseline(deps.clock.now());
+      tel.stage('baseline', { totalSessions: baseline.totalSessions, coverageDays: baseline.coverageDays });
       const outcomes: PipelineOutcome[] = [];
-      for (const event of ordered) outcomes.push(await processEvent(event));
+      for (const event of ordered) outcomes.push(await processEvent(event, baseline));
       return outcomes;
     },
 

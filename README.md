@@ -17,9 +17,10 @@ Read [`docs/SPECIFICATION.md`](docs/SPECIFICATION.md) (the frozen source spec) a
 |-------|-------|
 | Data contracts (8, frozen) | ✅ complete, `schemaVersion 1.0.0` |
 | 13 invariants + runtime guards | ✅ complete |
-| **Stage 1 · Event Collector** | ✅ **normalizer + collector + bridge wiring done & tested; native Kotlin/Swift reference impl complete** |
-| Context builder | ✅ real (structural/temporal) |
-| Pattern detector | 🟡 stub logic, final shape |
+| **Stage 1 · Event Collector** | ✅ normalizer + collector + bridge wiring done & tested; native Kotlin/Swift reference impl complete |
+| **Stage 2 · Context builder** | ✅ real (structural/temporal), dedicated tests |
+| **Stage 2/3 · Session segmenter + Behavioural baseline** | ✅ pure `segmentSessions` + `computeBaseline` (per-time-frame robust distributions); `local-baseline-provider` caches & feeds the pipeline |
+| **Stage 3 · Pattern detector** | ✅ baseline-aware: unusual *for this person*, maturity-weighted confidence, cold-start fallback, absolute floors |
 | Candidate generator | 🟡 stub logic, final shape |
 | **Policy engine (Intervene vs Silence)** | ✅ **real maths, per spec §4** |
 | Intervention factory + Awareness Window | 🟡 stub copy, final shape |
@@ -34,8 +35,9 @@ Read [`docs/SPECIFICATION.md`](docs/SPECIFICATION.md) (the frozen source spec) a
 packages/
   core/      Pure TypeScript. Contracts, invariants, ingestion, engines, pipeline. Zero runtime deps.
              src/ingestion/ — Stage 1: RawNativeEvent → normalizeEvent → EventCollector (EventSource).
+             src/engines/  — Stage 2/3: context-builder, session-segmenter, baseline, pattern-detector.
   adapters/  Native Event collectors — Android (Kotlin) & iOS (Swift) reference implementations.
-  app/       Shell UI. Framework-agnostic view-models + native-event-source bridge (.ts, tested)
+  app/       Shell UI. View-models + native-event-source bridge + local-baseline-provider (.ts, tested)
              + React Native component stubs (.tsx).
 docs/        SPECIFICATION.md (frozen) · ARCHITECTURE.md
 ```
