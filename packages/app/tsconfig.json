@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "paths": {
+      "@awake-os/core": ["../core/src/index.ts"]
+    }
+  },
+  "//": "Only .ts view-models are type-checked here. The .tsx React Native components are excluded until Step 4 adds react / react-native as dependencies.",
+  "include": ["src/**/*.ts", "tests/**/*.ts"],
+  "exclude": ["src/**/*.tsx"]
+}

@@ -1,0 +1,23 @@
+{
+  "name": "awake-os",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Human Agency OS / Awareness OS — a Human Agency Infrastructure that opens Awareness Windows so automatic digital behaviour can become a conscious choice.",
+  "type": "module",
+  "workspaces": [
+    "packages/core",
+    "packages/app"
+  ],
+  "scripts": {
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test:core": "npm run test -w @awake-os/core",
+    "typecheck:core": "npm run typecheck -w @awake-os/core"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}

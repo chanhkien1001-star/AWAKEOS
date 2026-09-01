@@ -1,0 +1,21 @@
+{
+  "name": "@awake-os/app",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Shell / UI layer. Framework-agnostic view-models (.ts, compiled + tested) plus React Native component stubs (.tsx, wired up in Step 4).",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "node --test \"tests/**/*.test.ts\"",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@awake-os/core": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}

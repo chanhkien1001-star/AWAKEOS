@@ -1,0 +1,29 @@
+# dependencies
+node_modules/
+.pnp.*
+
+# build output
+dist/
+build/
+*.tsbuildinfo
+
+# native build artifacts
+packages/adapters/android/.gradle/
+packages/adapters/android/build/
+packages/adapters/ios/build/
+packages/adapters/ios/Pods/
+*.xcworkspace/xcuserdata/
+
+# logs
+*.log
+npm-debug.log*
+
+# editor / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# local-first user data must never be committed (I-09 Local-First Data Sovereignty)
+*.awareness-store
+/local-data/
