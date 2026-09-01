@@ -22,7 +22,7 @@ Success = the person chose consciously — including when they choose to continu
 
 | # | Stage | Module | Kind | Data-boundary layer |
 |---|-------|--------|------|---------------------|
-| 1 | EVENT | `packages/adapters/*` → `EventSource` port | native, side-effecting | 1 · Observation |
+| 1 | EVENT | `adapters/*` (native) → `core/ingestion/*` (`normalizeEvent` + `createEventCollector`) → `EventSource` port | native + pure TS trust boundary | 1 · Observation |
 | 2 | CONTEXT | `core/engines/context-builder.ts` | pure, state-free | 1 · Observation |
 | 3 | PATTERN | `core/engines/pattern-detector.ts` *(stub logic)* | pure, state-free | 2 · Derived Structure |
 | 4 | INTERVENTION CANDIDATE | `core/engines/candidate-generator.ts` *(stub logic)* | pure | 2 · Derived Structure |
@@ -34,6 +34,26 @@ Success = the person chose consciously — including when they choose to continu
 `core/pipeline/pipeline.ts` wires the stages in order. It owns no domain logic —
 only event pull, local persistence, the small state the policy maths needs
 (recent intervention timestamps), and telemetry (every outcome, Silence included).
+
+### Stage 1 detail — ingestion (`core/ingestion/`)
+
+```
+native adapter ──push "awake:rawEventBatch"──┐
+                                             ├─▶ EventCollector ──▶ EventSource.pull()
+native adapter ──pull drainPendingEvents()───┘   · normalizeEvent (trust boundary)
+                                                 · de-bounce identical signals (I-05)
+                                                 · order by occurredAt, bound memory
+```
+
+- `raw-event.ts` — `RawNativeEvent`, the flat all-primitive wire shape.
+- `event-normalizer.ts` — pure `(RawNativeEvent) -> Event | rejection`. Enforces
+  the frozen contract, `schemaVersion` `1.0.0`, allow-listed payloads (**I-02**),
+  salted-hash identifiers (**I-09**), plausible timestamps.
+- `event-collector.ts` — the production `EventSource`: normalizes, de-bounces OS
+  chatter, drains oldest-first, drops oldest on overflow, counts every rejection.
+- Bridge wiring (`app/ingestion/`): `native-module.ts` (the Kotlin/Swift JS
+  contract) + `createNativeEventSource` (push channel + pull-time backstop, one
+  shared collector).
 
 ## Decision maths (Stage 5, implemented exactly per spec §4)
 

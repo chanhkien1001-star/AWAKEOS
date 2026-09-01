@@ -14,6 +14,9 @@ export * from './invariants/invariants.ts';
 // Ports (seams to platform adapters / UI / storage)
 export * from './pipeline/ports.ts';
 
+// Stage 1 — [EVENT] ingestion: normalize + de-bounce raw native signals
+export * from './ingestion/index.ts';
+
 // Pipeline stages (pure functions)
 export * from './engines/context-builder.ts';
 export * from './engines/pattern-detector.ts';

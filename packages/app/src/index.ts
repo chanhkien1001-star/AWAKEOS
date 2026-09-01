@@ -5,6 +5,7 @@
  * wired to these in Implementation Step 4.
  */
 
+export * from './ingestion/index.ts';
 export * from './awareness-window/choice-symmetry.ts';
 export * from './awareness-window/awareness-window.viewmodel.ts';
 export * from './reflection-mirror/reflection-mirror.viewmodel.ts';

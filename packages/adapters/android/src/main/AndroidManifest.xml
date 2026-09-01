@@ -1,0 +1,19 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+      Special access: the user grants this from Settings > Usage access
+      (Settings.ACTION_USAGE_ACCESS_SETTINGS). Without it, ApplicationStateChanged
+      events are simply not produced — the collector degrades to screen signals
+      only. Screen on/off/unlock needs no permission.
+    -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+
+    <!-- Keeps the UsageStats poller alive while the user has opted in. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
+    <!-- Intentionally NO android.permission.INTERNET: adapters never touch the network (I-09). -->
+</manifest>

@@ -17,6 +17,7 @@ Read [`docs/SPECIFICATION.md`](docs/SPECIFICATION.md) (the frozen source spec) a
 |-------|-------|
 | Data contracts (8, frozen) | ✅ complete, `schemaVersion 1.0.0` |
 | 13 invariants + runtime guards | ✅ complete |
+| **Stage 1 · Event Collector** | ✅ **normalizer + collector + bridge wiring done & tested; native Kotlin/Swift reference impl complete** |
 | Context builder | ✅ real (structural/temporal) |
 | Pattern detector | 🟡 stub logic, final shape |
 | Candidate generator | 🟡 stub logic, final shape |
@@ -24,16 +25,18 @@ Read [`docs/SPECIFICATION.md`](docs/SPECIFICATION.md) (the frozen source spec) a
 | Intervention factory + Awareness Window | 🟡 stub copy, final shape |
 | Pipeline orchestrator (E2E) | ✅ complete |
 | Reflection mirror | 🟡 stub aggregation, final shape |
-| Native adapters (Kotlin/Swift) | ⬜ skeletons only — Step 1 |
+| Native adapters (Kotlin/Swift) | ✅ full reference impl (screen + app-usage observers, salted hashing, RN module); compiles in an RN host, not in this repo |
 | Awareness Window / Reflection UI | 🟡 view-models done + tested; RN components are stubs — Steps 4–5 |
 
 ## Layout
 
 ```
 packages/
-  core/      Pure TypeScript. Contracts, invariants, engines, pipeline. Zero runtime deps.
-  adapters/  Native Event collectors — Android (Kotlin) & iOS (Swift) skeletons.
-  app/       Shell UI. Framework-agnostic view-models (.ts, tested) + React Native stubs (.tsx).
+  core/      Pure TypeScript. Contracts, invariants, ingestion, engines, pipeline. Zero runtime deps.
+             src/ingestion/ — Stage 1: RawNativeEvent → normalizeEvent → EventCollector (EventSource).
+  adapters/  Native Event collectors — Android (Kotlin) & iOS (Swift) reference implementations.
+  app/       Shell UI. Framework-agnostic view-models + native-event-source bridge (.ts, tested)
+             + React Native component stubs (.tsx).
 docs/        SPECIFICATION.md (frozen) · ARCHITECTURE.md
 ```
 

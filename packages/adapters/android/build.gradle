@@ -1,0 +1,26 @@
+// Android native module for the Human Agency OS Event Collector (Step 1).
+// Observes OS signals and forwards flat RawNativeEvent maps to JS. No network.
+
+apply plugin: 'com.android.library'
+apply plugin: 'org.jetbrains.kotlin.android'
+
+android {
+    namespace 'os.awake.collector'
+    compileSdk 35
+
+    defaultConfig {
+        minSdk 24
+        targetSdk 35
+        consumerProguardFiles 'consumer-rules.pro'
+    }
+    kotlinOptions { jvmTarget = '17' }
+    buildFeatures { buildConfig true }
+}
+
+dependencies {
+    implementation 'com.facebook.react:react-android'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
+    // Salt-at-rest for the package-name hash (I-09). Local keystore only.
+    implementation 'androidx.security:security-crypto:1.1.0-alpha06'
+    testImplementation 'junit:junit:4.13.2'
+}

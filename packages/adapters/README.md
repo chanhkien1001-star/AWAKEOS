@@ -1,44 +1,116 @@
-# @awake-os/adapters — Native Event Collectors
+# @awake-os/adapters — Native Event Collectors (Step 1)
 
-**Implementation Step 1.** These are the only components allowed to touch the OS.
-Their single job: observe raw OS signals and emit normalized `Event` objects
-(schema `1.0.0`) across the bridge into `@awake-os/core`'s `EventSource` port.
+The only components that touch the OS. Their single job: **observe raw OS signals
+and forward flat `RawNativeEvent` objects** across the React Native bridge into
+`@awake-os/core`'s `EventCollector`. No interpretation, no derivation, no network.
 
-## Hard rules
+## Where the pieces live
 
-- **I-02 Evidence Before Interpretation** — emit only what was observed:
-  screen on/off/lock/unlock, app foreground/background/terminated, explicit user
-  inputs the user opted to share. Never emit a guessed state ("focused",
-  "distracted", "restless").
-- **I-09 Local-First** — an adapter never sends an Event anywhere except the
-  local bridge. No network calls, ever.
-- **`packageNameHash`** — the raw package / bundle id must be salted-hashed on
-  device before it leaves the adapter. The salt is per-install, stored in the
-  platform keystore, never synced.
-- **No PII in payloads** — no window titles, URLs, notification text, clipboard,
-  keystrokes. `ExplicitInputReceived.actionId` is an app-defined enum, not free
-  text.
+| Layer | Path | Language | Compiled/tested by |
+|-------|------|----------|--------------------|
+| Trust boundary — normalize + validate + de-bounce + order | `packages/core/src/ingestion/` | TypeScript | `npm test` (this repo) |
+| Bridge wiring — push channel + pull backstop | `packages/app/src/ingestion/` | TypeScript | `npm test` (this repo) |
+| Android observers | `packages/adapters/android/` | Kotlin | Android Studio / Gradle |
+| iOS observers | `packages/adapters/ios/` | Swift | Xcode / CocoaPods |
 
-## Event shape the bridge expects
+The Kotlin/Swift here is a complete reference implementation but is **not built by
+this repo** — it compiles inside a React Native host app. Everything that can be
+verified without a device (the entire normalization + collection + bridging
+contract) is pure TypeScript and is covered by tests.
+
+## Data flow
+
+```
+Android BroadcastReceiver / UsageStatsManager ─┐
+iOS NotificationCenter / DeviceActivity ────────┤ push  "awake:rawEventBatch"
+                                                ├────────────────▶ createNativeEventSource
+native RawEventBuffer  ◀── drainPendingEvents ──┘ pull  (backstop)        │
+                                                                         ▼
+                                                        @awake-os/core EventCollector
+                                                        · normalizeEvent (I-02 / I-09 guards)
+                                                        · de-bounce identical signals (I-05)
+                                                        · order by occurredAt
+                                                                         │
+                                                                         ▼
+                                                              Pipeline.tick() → Stage 2…
+```
+
+## `RawNativeEvent` (the wire shape)
+
+Flat, all-primitive, defined in
+[`packages/core/src/ingestion/raw-event.ts`](../core/src/ingestion/raw-event.ts):
 
 ```jsonc
 {
-  "id": "uuid-v4",
-  "occurredAt": 1735820000000,            // Unix epoch UTC ms
+  "occurredAt": 1767225600000,          // native epoch ms
   "type": "ApplicationStateChanged",
-  "source": { "type": "System", "id": "android.usage-events" },
-  "subject": { "type": "Application", "id": "sha256:base64url(salt+pkg)" },
-  "payload": { "state": "Foreground", "packageNameHash": "sha256:base64url(salt+pkg)" },
-  "schemaVersion": "1.0.0"
+  "sourceType": "System",
+  "sourceId": "android.usage-events",
+  "subjectType": "Application",
+  "subjectId": "sha256:s0m3-base64url",
+  "payload": { "state": "Foreground", "packageNameHash": "sha256:s0m3-base64url" }
 }
 ```
 
-## Files
+The normalizer **rejects** anything that violates:
 
-| Platform | Signal source | Skeleton |
-|----------|---------------|----------|
-| Android  | `UsageStatsManager` / `UsageEvents`, `ACTION_SCREEN_ON/OFF`, `KeyguardManager` | [`android/ScreenStateAdapter.kt`](android/ScreenStateAdapter.kt), [`android/ApplicationStateAdapter.kt`](android/ApplicationStateAdapter.kt) |
-| iOS      | `UIApplication` lifecycle notifications, `UIScreen`, screen-time entitlements | [`ios/ScreenStateAdapter.swift`](ios/ScreenStateAdapter.swift), [`ios/ApplicationStateAdapter.swift`](ios/ApplicationStateAdapter.swift) |
+- **I-02** — payload keys are allow-listed per type. A `windowTitle`, `url`,
+  `text`, or a free-text `actionId` → `DisallowedPayloadField`.
+- **I-09** — `packageNameHash` must be `sha256:<base64url>` (≥ 16 chars, no dots).
+  A raw `com.instagram.android` → `UnhashedIdentifier`.
+- plausible `occurredAt` (not 0, not pre-2020, not > now + 2 min).
+- `schemaVersion`, if present, must be `1.0.0`.
 
-Each adapter exposes one method to the JS bridge: `drainPendingEvents(): Event[]`,
-consumed by a `NativeEventSource implements EventSource` in `@awake-os/app`.
+## What each platform observes
+
+### Android (`android/src/main/java/os/awake/collector/`)
+
+| File | Signal | Emits |
+|------|--------|-------|
+| `ScreenStateReceiver.kt` | `ACTION_SCREEN_ON/OFF`, `ACTION_USER_PRESENT`, `KeyguardManager` | `ScreenStateChanged` |
+| `AppUsageReader.kt` | `UsageStatsManager.queryEvents` polling (needs *Usage access*) | `ApplicationStateChanged` |
+| `PackageHasher.kt` | — | salts + SHA-256s package names; salt in `EncryptedSharedPreferences` |
+| `RawEventBuffer.kt` | — | bounded FIFO drained by `drainPendingEvents()` |
+| `AwakeEventCollectorModule.kt` | RN `ReactContextBaseJavaModule` + `RCTDeviceEventEmitter` | the JS surface |
+
+Grant flow: `openPermissionSettings()` opens `Settings.ACTION_USAGE_ACCESS_SETTINGS`.
+Without it the collector still runs and produces screen events only —
+`getStatus().permission === 'partial'`.
+
+### iOS (`ios/AwakeEventCollector/`)
+
+| File | Signal | Emits |
+|------|--------|-------|
+| `ScreenStateObserver.swift` | `protectedDataDidBecomeAvailable/Unavailable`, `UIScreen.brightnessDidChange` | `ScreenStateChanged` |
+| `AppLifecycleObserver.swift` | `UIApplication` lifecycle notifications (host app only) | `ApplicationStateChanged` |
+| `BundleHasher.swift` | — | salts + SHA-256s bundle ids; salt in Keychain (`…ThisDeviceOnly`) |
+| `DeviceActivityBridge.swift` | Family Controls / `DeviceActivityMonitor` extension | cross-app `ApplicationStateChanged` (Step 1.1, entitlement-gated) |
+| `AwakeEventCollectorModule.swift` + `.m` | RN `RCTEventEmitter` | the JS surface |
+
+A general iOS app cannot see other apps' foreground state; cross-app visibility
+needs the Family Controls entitlement, so `permission` is `'partial'` until that
+extension ships.
+
+## Host-app integration (Step 4 territory, sketch)
+
+```ts
+import { NativeModules, NativeEventEmitter } from 'react-native';
+import { createEventCollector } from '@awake-os/core';
+import { createNativeEventSource } from '@awake-os/app';
+
+const native = NativeModules.AwakeEventCollector;
+const emitter = new NativeEventEmitter(native);
+const collector = createEventCollector({ ids: cryptoIdFactory, clock: systemClock });
+
+const eventSource = createNativeEventSource({ native, emitter, collector });
+await eventSource.start();               // asks the OS for access
+const pipeline = createPipeline({ eventSource, choiceProvider, store, ids, clock });
+// pipeline.tick() now pulls real device events
+```
+
+## Non-negotiables for any change here
+
+- Emit only observed transitions + a hashed identity. Nothing else. (I-02)
+- Hash package/bundle ids on-device with a per-install salt that never syncs. (I-09)
+- No `INTERNET` permission on Android; no networking code on either platform. (I-09)
+- Never observe our own app.
