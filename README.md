@@ -25,11 +25,12 @@ Read [`docs/SPECIFICATION.md`](docs/SPECIFICATION.md) (the frozen source spec) a
 | **Stage 3/4 · Pattern arbitration** | ✅ salience ranking + subsumption (one Awareness Window per event, I-05) |
 | **Stage 5 · Policy engine (Intervene vs Silence)** | ✅ real maths per spec §4; tuned relevance/cost terms |
 | **Stage 5 · Fatigue model** | ✅ time-decay + per-category + choice-aware (a conscious `Continue` quiets that structure — I-01); intervention history persisted in `LocalStore` |
-| Intervention factory + Awareness Window | 🟡 stub copy, final shape |
+| Intervention factory (Stage 6) | 🟡 stub copy, final shape |
+| **Stage 6/7 · Awareness Window UI** | ✅ tested lifecycle controller (hold → ready → resolved, always-dismissible) + render descriptor (one shared choice style, verbatim copy) + `ChoiceProvider` adapter; RN `AwarenessWindow.tsx` / `AwarenessWindowHost.tsx` / `ReturnMoment.tsx` translate them |
 | Pipeline orchestrator (E2E) | ✅ complete |
 | Reflection mirror | 🟡 stub aggregation, final shape |
 | Native adapters (Kotlin/Swift) | ✅ full reference impl (screen + app-usage observers, salted hashing, RN module); compiles in an RN host, not in this repo |
-| Awareness Window / Reflection UI | 🟡 view-models done + tested; RN components are stubs — Steps 4–5 |
+| Reflection UI | 🟡 view-model done + tested; RN component is a stub — Step 5 |
 
 ## Layout
 

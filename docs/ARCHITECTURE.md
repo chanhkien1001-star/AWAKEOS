@@ -122,6 +122,38 @@ only** (I-02) with tunable weights in `DEFAULT_POLICY_CONFIG`:
   quiets future nudges for that structure (I-01 Agency Above Compliance); nothing
   in the feedback loop can push toward intervening *more*.
 
+### Stage 6/7 detail — Awareness Window & Choice (`app/awareness-window/`)
+
+Pure, tested TypeScript; the `.tsx` components are a one-to-one translation.
+
+```
+pipeline ─present(window,intervention)→ createAwarenessWindowChoiceProvider
+                                          │  toAwarenessWindowViewModel  (I-12 copy, I-13 symmetric choices)
+                                          │  createAwarenessWindowController
+                                          ▼
+              presenter.present(controller) ── AwarenessWindowHost.tsx mounts AwarenessWindow.tsx
+                                          │      render = describeAwarenessWindowRender(state)
+                                          ▼
+                                   HumanChoice ─→ pipeline
+```
+
+- `awareness-window-controller.ts` — the lifecycle state machine:
+  `holding → ready → resolved`, with `dismiss()` accepted in every non-terminal
+  phase. `choicesEnabled` is **one** boolean for every choice (I-13); `choose()`
+  is a silent no-op during the mandatory 2000–5000 ms hold (I-05); `dismiss()`
+  always yields a first-class `HumanChoice{choice:'Dismiss'}` (I-08); resolution
+  is idempotent.
+- `awareness-window-render.ts` — `describeAwarenessWindowRender(state)` → a plain
+  render descriptor. Re-asserts `assertNonCoerciveText` (I-12) and
+  `assertChoiceSymmetry` (I-13) at the last point before pixels; every
+  `RenderedChoice` carries the **same frozen `CHOICE_RENDER_STYLE` reference** and
+  `emphasis: 'none'`.
+- `choice-provider-adapter.ts` — `createAwarenessWindowChoiceProvider` wires the
+  above behind the core `ChoiceProvider` port; `presenter` is the RN host, tests
+  pass a scripted one.
+- The Return: `return-moment.ts` view-model + `ReturnMoment.tsx` (black screen,
+  "You are here", one haptic beat, 2 s auto-dismiss, tap to skip — no rewards, I-10).
+
 ## Ports (the only seams)
 
 `core/pipeline/ports.ts`: `EventSource`, `ChoiceProvider`, `LocalStore` (events,
@@ -139,8 +171,9 @@ other modules call — a guard throwing means the caller is wrong:
 | `assertStructuralName` | I-11, I-07 | `pattern-detector` on every `structuralName` (`baseline`/`session-segmenter` emit metrics only) |
 | `assertNonCoerciveText` | I-12, I-10, I-07 | `intervention-factory`, `awareness-window.viewmodel` |
 | `assertNoJudgment` | I-07 | `reflection-mirror`, `reflection-mirror.viewmodel` |
-| `assertChoiceSymmetry` | I-13 | `app/awareness-window/choice-symmetry.ts` |
-| `assertReversible` | I-08 | `intervention-factory` on every modality |
+| `assertChoiceSymmetry` | I-13 | `app/awareness-window/choice-symmetry.ts` + re-checked in `awareness-window-render.ts` |
+| `assertNonCoerciveText` | I-12 | also re-checked in `awareness-window-render.ts` before pixels |
+| `assertReversible` | I-08 | `intervention-factory` on every modality; controller `dismiss()` is always live |
 
 ## Package layout
 
@@ -159,7 +192,9 @@ packages/
 3. ✅ **Intervention Policy Engine** — `pattern-arbiter` (multi-pattern arbitration
    + subsumption), `fatigue` (decayed, per-category, choice-aware), tuned
    relevance/cost terms, intervention history persisted in `LocalStore`.
-4. **Awareness Window & Choice Symmetry UI** — RN components on the view-models.
+4. ✅ **Awareness Window & Choice Symmetry UI** — tested controller +
+   render descriptor + `ChoiceProvider` adapter; RN `AwarenessWindow.tsx` /
+   `AwarenessWindowHost.tsx` / `ReturnMoment.tsx` translate them.
 5. **Reflection Mirror** — on-device encrypted store + non-judgmental facts UI.
 
 The scaffold runs all 8 stages end-to-end today through stub adapters; see
