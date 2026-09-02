@@ -157,8 +157,11 @@ You still need Part B done once so `apps/mobile/` is a real project with an
 
 ## What is NOT ready yet
 
-- `apps/mobile/` has only wiring files — no `android/` project (Part B step 1).
-- No onboarding, no settings screen (rest periods, observed-apps opt-in,
-  "erase all data"), no permission-request UI, no app icon.
-- These are the next things to build in this repo; the engine underneath them is
-  complete.
+- `apps/mobile/` has the app screens (`OnboardingScreen`, `UsageAccessScreen`,
+  `SettingsScreen`, routed `AwakeApp`) and wiring — but **no `android/` project
+  yet** (Part B step 1: `npx @react-native-community/cli init`).
+- No launcher icon / store graphics — see `apps/mobile/assets/README.md`.
+- The settings "observed apps" allow-list has no app-picker UI yet (defaults to
+  "observe all"; the consent filter itself works).
+- The engine, settings model, onboarding/permission copy, consent filter, and
+  "erase all data" are all built and tested.

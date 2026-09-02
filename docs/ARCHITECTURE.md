@@ -240,6 +240,26 @@ All five steps have real logic — including the Stage 4 candidate generator
 rest period / unbroken session) and the Stage 6 intervention factory
 (salience-aware modality + 2–5 s hold + transparent per-structure copy).
 
+## Settings, onboarding & consent (`app/src/`)
+
+- `settings/user-settings.ts` — `UserSettings` (onboarding flag, rest periods,
+  `observedApps` consent, retention days, `interventionsEnabled`), an encrypted
+  single-record `SettingsStore`, and pure `mapSettingsToRuntimeConfig` →
+  `{ pipeline, retention }`.
+- `settings/consent-filtered-event-source.ts` — an `EventSource` decorator that
+  drops `ApplicationStateChanged` events for non-consented apps (I-09); screen
+  and input events always pass. Re-reads consent every `pull()`.
+- `interventionsEnabled: false` (I-01 master switch) → the pipeline still
+  observes, detects, decides and records, but returns a **`Muted`** outcome
+  instead of `Choice` and never calls the `ChoiceProvider`. The Reflection mirror
+  is unaffected.
+- `PersistentLocalStore.wipe()` + `AwakeRuntime.eraseAllData()` back the
+  "erase all data" control (I-09) — clears all five logs and, if a
+  `settingsStore` was supplied, resets settings.
+- `onboarding/onboarding-content.ts` + `permissions/usage-access.ts` — copy for
+  the first-run explainer and the optional Usage Access ask; every string is run
+  through `assertNonCoerciveText` at module load.
+
 ## Running the engine
 
 - **`createAwakeRuntime(deps)`** (`app/src/runtime/awake-runtime.ts`) assembles

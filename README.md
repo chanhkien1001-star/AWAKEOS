@@ -32,10 +32,13 @@ Read [`docs/SPECIFICATION.md`](docs/SPECIFICATION.md) (the frozen source spec) a
 | **Local-first storage** | ✅ `createPersistentLocalStore` — JSON → `EncryptionPort` → `StorageBackend` (ciphertext only), lazy-loaded, `prune()` retention; app adapters `createMmkvStorageBackend` + `createAesGcmEncryption` (AES-256-GCM) |
 | Native adapters (Kotlin/Swift) | ✅ full reference impl (screen + app-usage observers, salted hashing, RN module); compiles in an RN host, not in this repo |
 | Reflection UI | ✅ render descriptor (one row style, plain counts, order preserved) + range presets + `ReflectionMirror.tsx` |
-| **Runtime assembly** | ✅ `createAwakeRuntime` wires store + baseline provider + pipeline from ports |
+| **Runtime assembly** | ✅ `createAwakeRuntime` wires store + baseline provider + consent filter + pipeline from ports; `eraseAllData()` |
+| **Settings** | ✅ `UserSettings` + encrypted `SettingsStore` + `mapSettingsToRuntimeConfig`; rest periods, observed-apps consent filter, retention, `interventionsEnabled` master switch (I-01) → `Muted` outcome |
+| **Onboarding + permission copy** | ✅ `ONBOARDING_STEPS` + `describeUsageAccessRequest` — all strings guarded non-coercive at load |
 | **Runnable demo** | ✅ `npm run demo` — narrated end-to-end run on synthetic usage; covered by a CI smoke test |
 | **CI** | ✅ `.github/workflows/ci.yml` — typecheck + tests + demo on push/PR |
-| **Mobile host** | 📄 reference wiring in `apps/mobile/` (`bootstrap.ts`, `AwakeApp.tsx`); compiled in a real RN project |
+| **Mobile host** | 📄 `apps/mobile/` — screens (`OnboardingScreen`, `UsageAccessScreen`, `SettingsScreen`, routed `AwakeApp`) + wiring; needs `npx react-native init` for the `android/` project |
+| **Play Store release** | 📄 `docs/RELEASE.md` + `docs/PRIVACY.md` + `docs/PLAY-PERMISSIONS.md` |
 
 ## Layout
 

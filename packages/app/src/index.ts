@@ -27,4 +27,10 @@ export * from './storage/index.ts';
 // Runtime assembly
 export * from './runtime/awake-runtime.ts';
 
+// Settings, onboarding, permissions
+export * from './settings/user-settings.ts';
+export * from './settings/consent-filtered-event-source.ts';
+export * from './onboarding/onboarding-content.ts';
+export * from './permissions/usage-access.ts';
+
 export * from './return-moment/return-moment.ts';

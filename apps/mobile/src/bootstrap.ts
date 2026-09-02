@@ -8,7 +8,7 @@ import { MMKV } from 'react-native-mmkv';
 import * as Keychain from 'react-native-keychain';
 import QuickCrypto from 'react-native-quick-crypto';
 
-import { createEventCollector, cryptoIdFactory, systemClock } from '@awake-os/core';
+import { createEventCollector, cryptoIdFactory, systemClock, type EncryptionPort, type StorageBackend } from '@awake-os/core';
 import {
   createAesGcmEncryption,
   createAwarenessWindowChoiceProvider,
@@ -16,6 +16,8 @@ import {
   createNativeEventSource,
   type AwakeRuntimeDeps,
   type AwarenessWindowPresenter,
+  type SettingsStore,
+  type UserSettings,
 } from '@awake-os/app';
 
 const KEYCHAIN_SERVICE = 'os.awake.storage-key.v1';
@@ -32,10 +34,30 @@ async function getOrCreateStorageKey(): Promise<Uint8Array> {
   return fresh;
 }
 
+let cachedBackend: StorageBackend | null = null;
+let cachedEncryption: Promise<EncryptionPort> | null = null;
+
+/** Storage ports only — used before settings are read. */
+export function buildStorage(): { backend: StorageBackend; encryption: Promise<EncryptionPort> } {
+  cachedBackend ??= createMmkvStorageBackend(new MMKV({ id: 'awake-os' }));
+  cachedEncryption ??= (async () =>
+    createAesGcmEncryption({
+      subtle: QuickCrypto.subtle as never,
+      random: { getRandomValues: (a) => QuickCrypto.getRandomValues(a) },
+      keyBytes: await getOrCreateStorageKey(),
+    }))();
+  return { backend: cachedBackend, encryption: cachedEncryption };
+}
+
 /** `presenter` is the mounted `<AwarenessWindowHost>` exposed via its ref. */
-export async function buildRuntimeDeps(presenter: AwarenessWindowPresenter): Promise<AwakeRuntimeDeps> {
+export async function buildRuntimeDeps(
+  presenter: AwarenessWindowPresenter,
+  settingsStore: SettingsStore,
+  settings: UserSettings,
+): Promise<AwakeRuntimeDeps> {
   const clock = systemClock;
   const ids = cryptoIdFactory;
+  const { backend, encryption } = buildStorage();
 
   const collector = createEventCollector({ ids, clock });
   const native = NativeModules.AwakeEventCollector;
@@ -43,14 +65,14 @@ export async function buildRuntimeDeps(presenter: AwarenessWindowPresenter): Pro
   const eventSource = createNativeEventSource({ native, emitter, collector });
   await eventSource.start();
 
-  const storageBackend = createMmkvStorageBackend(new MMKV({ id: 'awake-os' }));
-  const encryption = await createAesGcmEncryption({
-    subtle: QuickCrypto.subtle as never,
-    random: { getRandomValues: (a) => QuickCrypto.getRandomValues(a) },
-    keyBytes: await getOrCreateStorageKey(),
-  });
-
-  const choiceProvider = createAwarenessWindowChoiceProvider({ ids, clock, presenter });
-
-  return { eventSource, choiceProvider, storageBackend, encryption, clock, ids };
+  return {
+    eventSource,
+    choiceProvider: createAwarenessWindowChoiceProvider({ ids, clock, presenter }),
+    storageBackend: backend,
+    encryption: await encryption,
+    clock,
+    ids,
+    settings,
+    settingsStore,
+  };
 }

@@ -52,6 +52,12 @@ export interface PruneSummary {
 export interface PersistentLocalStore extends LocalStore {
   /** Apply the retention policy. Safe to call on a schedule. */
   prune(nowMs?: number): Promise<PruneSummary>;
+  /**
+   * Erase every log this store owns (events, choices, intervention records,
+   * pattern observations, reflections). One-way. Backs the "erase all data"
+   * control (I-09). Does not touch other logs on the same backend.
+   */
+  wipe(): Promise<void>;
 }
 
 export function createPersistentLocalStore(deps: {
@@ -150,6 +156,14 @@ export function createPersistentLocalStore(deps: {
         }
       }
       return { prunedAt: nowMs, removed };
+    },
+
+    async wipe() {
+      for (const log of Object.values(LOG)) {
+        await deps.backend.rewrite(log, []);
+        cache.set(log, []);
+        loaded.add(log);
+      }
     },
   };
 }

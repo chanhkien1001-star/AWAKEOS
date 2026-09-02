@@ -1,14 +1,14 @@
 /**
  * `createAwakeRuntime` — assembles the whole engine from ports.
  *
- *   EventSource ─┐
- *   Encryption ──┼─▶ PersistentLocalStore ─▶ LocalBaselineProvider ─┐
- *   StorageBackend┘                                                 │
- *   ChoiceProvider ───────────────────────────────────────────────▶ Pipeline
+ *   EventSource ─(consent filter)─┐
+ *   Encryption ──────────┬────────┼─▶ PersistentLocalStore ─▶ LocalBaselineProvider ─┐
+ *   StorageBackend ──────┘        │                                                  │
+ *   ChoiceProvider ───────────────┴──────────────────────────────────────────────────▶ Pipeline
  *
  * A host app passes the platform ports (native collector, MMKV backend, AES-GCM
- * key, the Awareness Window presenter); tests pass stubs. Everything above the
- * ports is the pure core.
+ * key, the Awareness Window presenter) plus the person's `UserSettings`; tests
+ * pass stubs. Everything above the ports is the pure core.
  */
 
 import {
@@ -31,6 +31,8 @@ import {
   type StorageBackend,
 } from '@awake-os/core';
 import { createLocalBaselineProvider } from '../baseline/local-baseline-provider.ts';
+import { createConsentFilteredEventSource } from '../settings/consent-filtered-event-source.ts';
+import { mapSettingsToRuntimeConfig, type SettingsStore, type UserSettings } from '../settings/user-settings.ts';
 
 export interface AwakeRuntimeDeps {
   readonly eventSource: EventSource;
@@ -40,6 +42,11 @@ export interface AwakeRuntimeDeps {
   readonly clock: Clock;
   readonly ids: IdFactory;
   readonly telemetry?: PipelineTelemetry;
+  /** The person's settings — mapped to pipeline + retention config, and used for the consent filter. */
+  readonly settings?: UserSettings;
+  /** When given, `eraseAllData()` also resets settings to defaults. */
+  readonly settingsStore?: SettingsStore;
+  /** Explicit overrides applied on top of anything derived from `settings`. */
   readonly pipeline?: Partial<PipelineConfig>;
   readonly retention?: Partial<RetentionPolicy>;
   readonly baseline?: {
@@ -52,22 +59,24 @@ export interface AwakeRuntimeDeps {
 export interface AwakeRuntime {
   readonly store: PersistentLocalStore;
   readonly pipeline: Pipeline;
-  /** Pull pending events through the 8 stages. */
   tick(): Promise<readonly PipelineOutcome[]>;
-  /** Build (and persist) a ReflectionMirror over [startMs, endMs). */
   reflect(startMs: number, endMs: number): Promise<ReflectionMirror>;
-  /** Apply the retention policy to on-device storage. */
   prune(nowMs?: number): Promise<PruneSummary>;
-  /** Recompute the behavioural baseline on the next tick. */
   invalidateBaseline(): void;
+  /** Erase all on-device usage data (and settings, if a `settingsStore` was provided). */
+  eraseAllData(): Promise<void>;
 }
 
 export function createAwakeRuntime(deps: AwakeRuntimeDeps): AwakeRuntime {
+  const fromSettings = deps.settings
+    ? mapSettingsToRuntimeConfig(deps.settings)
+    : { pipeline: {} as Partial<PipelineConfig>, retention: {} as Partial<RetentionPolicy> };
+
   const store = createPersistentLocalStore({
     backend: deps.storageBackend,
     encryption: deps.encryption,
     clock: deps.clock,
-    ...(deps.retention !== undefined ? { retention: deps.retention } : {}),
+    retention: { ...fromSettings.retention, ...deps.retention },
   });
 
   const baselineProvider = createLocalBaselineProvider({
@@ -78,15 +87,19 @@ export function createAwakeRuntime(deps: AwakeRuntimeDeps): AwakeRuntime {
     ...(deps.baseline?.segmenter !== undefined ? { segmenter: deps.baseline.segmenter } : {}),
   });
 
+  const eventSource = deps.settings
+    ? createConsentFilteredEventSource(deps.eventSource, () => deps.settings!.observedApps)
+    : deps.eventSource;
+
   const pipeline = createPipeline({
-    eventSource: deps.eventSource,
+    eventSource,
     choiceProvider: deps.choiceProvider,
     store,
     ids: deps.ids,
     clock: deps.clock,
     getBaseline: () => baselineProvider.getBaseline(),
     ...(deps.telemetry !== undefined ? { telemetry: deps.telemetry } : {}),
-    ...(deps.pipeline !== undefined ? { config: deps.pipeline } : {}),
+    config: { ...fromSettings.pipeline, ...deps.pipeline },
   });
 
   return {
@@ -96,5 +109,10 @@ export function createAwakeRuntime(deps: AwakeRuntimeDeps): AwakeRuntime {
     reflect: (startMs, endMs) => pipeline.reflect(startMs, endMs),
     prune: (nowMs) => store.prune(nowMs),
     invalidateBaseline: () => baselineProvider.invalidate(),
+    async eraseAllData() {
+      await store.wipe();
+      baselineProvider.invalidate();
+      if (deps.settingsStore) await deps.settingsStore.reset();
+    },
   };
 }

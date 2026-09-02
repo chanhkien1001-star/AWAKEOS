@@ -54,6 +54,12 @@ export interface PipelineConfig {
   readonly candidate: CandidateGeneratorConfig;
   readonly interventionFactory: InterventionFactoryConfig;
   readonly policy: PolicyConfig;
+  /**
+   * User master switch (I-01). When false the pipeline still observes, detects,
+   * decides and records — but never renders an Awareness Window; a `Muted`
+   * outcome is returned instead of `Choice`. The Reflection mirror is unaffected.
+   */
+  readonly interventionsEnabled: boolean;
 }
 
 export const DEFAULT_PIPELINE_CONFIG: PipelineConfig = Object.freeze({
@@ -64,6 +70,7 @@ export const DEFAULT_PIPELINE_CONFIG: PipelineConfig = Object.freeze({
   candidate: DEFAULT_CANDIDATE_CONFIG,
   interventionFactory: DEFAULT_INTERVENTION_FACTORY_CONFIG,
   policy: DEFAULT_POLICY_CONFIG,
+  interventionsEnabled: true,
 });
 
 export interface PipelineDeps {
@@ -101,6 +108,17 @@ export type PipelineOutcome =
   | { readonly kind: 'NoCandidate'; readonly event: Event; readonly context: Context; readonly pattern: Pattern }
   | {
       readonly kind: 'Silence';
+      readonly event: Event;
+      readonly context: Context;
+      readonly pattern: Pattern;
+      readonly suppressed: readonly SuppressedPattern[];
+      readonly candidate: InterventionCandidate;
+      readonly decision: InterventionPolicyDecision;
+      readonly trace: PolicyTrace;
+    }
+  | {
+      /** Policy said Intervene, but the user has turned Awareness Windows off (I-01). */
+      readonly kind: 'Muted';
       readonly event: Event;
       readonly context: Context;
       readonly pattern: Pattern;
@@ -226,6 +244,13 @@ export function createPipeline(deps: PipelineDeps): Pipeline {
     if (decision.decision === 'Silence') {
       // I-04: Silence is a first-class, logged outcome — not a failure path.
       return { kind: 'Silence', event, context, pattern, suppressed, candidate, decision, trace };
+    }
+
+    if (!cfg.interventionsEnabled) {
+      // I-01: the person has switched Awareness Windows off. Everything upstream
+      // still ran and is recorded; we simply do not render.
+      tel.stage('muted', { candidateId: candidate.id, patternId: pattern.id });
+      return { kind: 'Muted', event, context, pattern, suppressed, candidate, decision, trace };
     }
 
     // Stage 6 — INTERVENTION + AWARENESS WINDOW
