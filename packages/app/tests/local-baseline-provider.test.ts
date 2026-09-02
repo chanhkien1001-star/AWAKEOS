@@ -69,9 +69,11 @@ test('a store read failure degrades to an empty baseline, not a throw', async ()
     store: {
       appendEvent: async () => {},
       appendChoice: async () => {},
+      appendInterventionRecord: async () => {},
       saveReflection: async () => {},
       readEvents: async () => { throw new Error('disk gone'); },
       readChoices: async () => [],
+      readInterventionRecords: async () => [],
     },
     clock: { now: () => NOW },
   });

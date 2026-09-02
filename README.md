@@ -22,7 +22,9 @@ Read [`docs/SPECIFICATION.md`](docs/SPECIFICATION.md) (the frozen source spec) a
 | **Stage 2/3 · Session segmenter + Behavioural baseline** | ✅ pure `segmentSessions` + `computeBaseline` (per-time-frame robust distributions); `local-baseline-provider` caches & feeds the pipeline |
 | **Stage 3 · Pattern detector** | ✅ baseline-aware: unusual *for this person*, maturity-weighted confidence, cold-start fallback, absolute floors |
 | Candidate generator | 🟡 stub logic, final shape |
-| **Policy engine (Intervene vs Silence)** | ✅ **real maths, per spec §4** |
+| **Stage 3/4 · Pattern arbitration** | ✅ salience ranking + subsumption (one Awareness Window per event, I-05) |
+| **Stage 5 · Policy engine (Intervene vs Silence)** | ✅ real maths per spec §4; tuned relevance/cost terms |
+| **Stage 5 · Fatigue model** | ✅ time-decay + per-category + choice-aware (a conscious `Continue` quiets that structure — I-01); intervention history persisted in `LocalStore` |
 | Intervention factory + Awareness Window | 🟡 stub copy, final shape |
 | Pipeline orchestrator (E2E) | ✅ complete |
 | Reflection mirror | 🟡 stub aggregation, final shape |

@@ -1,25 +1,41 @@
 /**
  * STAGE 5 — [INTERVENTION POLICY]   (pure)   ***DECISION MATHS IS REAL***
  *
- * This implements Section 4 of the specification exactly:
+ * Implements Section 4 of the specification exactly:
  *
  *   Eligibility   = PatternConfidence * PotentialValue * ContextRelevance
  *   DecisionScore = Eligibility - InterruptionCost - InterventionFatigue
  *
  *   IF DecisionScore <= Threshold  OR  InterventionFatigue > MaxFatigueLimit
- *        -> Silence
- *   ELSE -> Intervene
+ *        -> Silence   (reason: EpistemicUncertainty | InterventionFatigue)
+ *   ELSE -> Intervene (reason: HighSalienceThresholdMet)
  *
- * `PotentialValue`, `ContextRelevance`, `InterruptionCost` and `InterventionFatigue`
- * are derived here from STRUCTURAL inputs only (I-02) with tunable weights; the
- * decision rule itself is fixed and must not be "softened" to intervene more.
- * Silence is a first-class success (I-04) and every Silence carries a reason.
+ * The rule above is FIXED and must never be softened to intervene more. The four
+ * quantities feeding it are derived here from STRUCTURAL inputs only (I-02) with
+ * tunable weights:
+ *
+ *  - PotentialValue      structural salience + how far past the personal baseline.
+ *  - ContextRelevance    rest period + long active app + long unbroken session.
+ *  - InterruptionCost    base + cost that ramps once the person is mid-burst.
+ *  - InterventionFatigue delegated to `computeInterventionFatigue` — decayed,
+ *                        per-category, and raised by the person's own prior
+ *                        choices (I-01 / I-05).
+ *
+ * Silence is a first-class success (I-04); every Silence carries a reason.
  */
 
 import type { Context } from '../contracts/context.contract.ts';
 import type { InterventionCandidate } from '../contracts/intervention-candidate.contract.ts';
 import type { InterventionPolicyDecision } from '../contracts/intervention-policy.contract.ts';
 import type { Pattern } from '../contracts/pattern.contract.ts';
+import {
+  computeInterventionFatigue,
+  fatigueIndexFor,
+  DEFAULT_FATIGUE_CONFIG,
+  type FatigueConfig,
+  type FatigueResult,
+  type PriorInterventionSummary,
+} from './fatigue.ts';
 
 export interface PolicyConfig {
   /** DecisionScore must be strictly greater than this to Intervene. */
@@ -29,17 +45,20 @@ export interface PolicyConfig {
   readonly weights: {
     readonly potentialValueFromSalience: number;
     readonly potentialValueFromDeviation: number;
+    /** deviation-from-baseline ratio that maps to a full normalised deviation of 1. */
+    readonly deviationFullRatio: number;
+    readonly contextRelevanceBase: number;
     readonly contextRelevanceRestBonus: number;
-    /** activeSubjectDurationMs that maps to a full +0.5 relevance term. */
-    readonly contextRelevanceDurationFullMs: number;
+    /** activeSubjectDurationMs mapping to the full active-app relevance term. */
+    readonly contextRelevanceActiveAppFullMs: number;
+    /** elapsedSinceLastUnlockMs mapping to the full unbroken-session relevance term. */
+    readonly contextRelevanceUnbrokenSessionFullMs: number;
     readonly interruptionBaseCost: number;
     readonly interruptionCostPerRecentEvent: number;
+    /** events-in-last-minute above which the per-event cost slope doubles. */
+    readonly interruptionBurstThreshold: number;
   };
-  readonly fatigue: {
-    /** Trailing window over which prior interventions accrue fatigue. */
-    readonly windowMs: number;
-    readonly costPerRecentIntervention: number;
-  };
+  readonly fatigue: FatigueConfig;
 }
 
 export const DEFAULT_POLICY_CONFIG: PolicyConfig = Object.freeze({
@@ -48,23 +67,24 @@ export const DEFAULT_POLICY_CONFIG: PolicyConfig = Object.freeze({
   weights: {
     potentialValueFromSalience: 0.6,
     potentialValueFromDeviation: 0.4,
+    deviationFullRatio: 3,
+    contextRelevanceBase: 0.3,
     contextRelevanceRestBonus: 0.3,
-    contextRelevanceDurationFullMs: 45 * 60_000,
+    contextRelevanceActiveAppFullMs: 45 * 60_000,
+    contextRelevanceUnbrokenSessionFullMs: 90 * 60_000,
     interruptionBaseCost: 0.1,
     interruptionCostPerRecentEvent: 0.005,
+    interruptionBurstThreshold: 30,
   },
-  fatigue: {
-    windowMs: 3 * 60 * 60_000, // 3h
-    costPerRecentIntervention: 0.2,
-  },
+  fatigue: DEFAULT_FATIGUE_CONFIG,
 });
 
 export interface PolicyInput {
   readonly candidate: InterventionCandidate;
   readonly pattern: Pattern;
   readonly context: Context;
-  /** `triggeredAt` of interventions already shown, any order. */
-  readonly recentInterventionTimestamps: readonly number[];
+  /** The person's recent intervention history (any order). */
+  readonly priorInterventions: readonly PriorInterventionSummary[];
   /** Evaluation time (epoch ms). */
   readonly now: number;
   readonly config?: PolicyConfig;
@@ -78,6 +98,7 @@ export interface PolicyTrace {
   readonly eligibility: number;
   readonly interruptionCost: number;
   readonly interventionFatigue: number;
+  readonly fatigueBreakdown: FatigueResult;
   readonly decisionScore: number;
   readonly threshold: number;
   readonly maxFatigueLimit: number;
@@ -91,31 +112,25 @@ export interface PolicyResult {
 const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
 
 function potentialValue(input: PolicyInput, c: PolicyConfig): number {
-  const deviationNorm = clamp01((input.pattern.metrics.deviationFromBaselineRatio - 1) / 2);
-  return clamp01(
-    c.weights.potentialValueFromSalience * input.candidate.salienceScore +
-      c.weights.potentialValueFromDeviation * deviationNorm,
-  );
+  const w = c.weights;
+  const deviationNorm = clamp01((input.pattern.metrics.deviationFromBaselineRatio - 1) / (w.deviationFullRatio - 1));
+  return clamp01(w.potentialValueFromSalience * input.candidate.salienceScore + w.potentialValueFromDeviation * deviationNorm);
 }
 
 function contextRelevance(input: PolicyInput, c: PolicyConfig): number {
-  const rest = input.context.temporal.isUserDefinedRestPeriod ? c.weights.contextRelevanceRestBonus : 0;
-  const durationTerm =
-    0.5 * clamp01(input.context.sequence.activeSubjectDurationMs / c.weights.contextRelevanceDurationFullMs);
-  return clamp01(0.4 + rest + durationTerm);
+  const w = c.weights;
+  const seq = input.context.sequence;
+  const rest = input.context.temporal.isUserDefinedRestPeriod ? w.contextRelevanceRestBonus : 0;
+  const activeApp = 0.35 * clamp01(seq.activeSubjectDurationMs / w.contextRelevanceActiveAppFullMs);
+  const unbroken = 0.35 * clamp01(seq.elapsedSinceLastUnlockMs / w.contextRelevanceUnbrokenSessionFullMs);
+  return clamp01(w.contextRelevanceBase + rest + activeApp + unbroken);
 }
 
 function interruptionCost(input: PolicyInput, c: PolicyConfig): number {
-  return clamp01(
-    c.weights.interruptionBaseCost +
-      c.weights.interruptionCostPerRecentEvent * input.context.sequence.eventsInLastWindow,
-  );
-}
-
-function interventionFatigue(input: PolicyInput, c: PolicyConfig): number {
-  const since = input.now - c.fatigue.windowMs;
-  const recent = input.recentInterventionTimestamps.filter((t) => t >= since).length;
-  return recent * c.fatigue.costPerRecentIntervention;
+  const w = c.weights;
+  const events = input.context.sequence.eventsInLastWindow;
+  const burst = Math.max(0, events - w.interruptionBurstThreshold);
+  return clamp01(w.interruptionBaseCost + w.interruptionCostPerRecentEvent * (events + burst));
 }
 
 export function decidePolicy(input: PolicyInput): PolicyResult {
@@ -127,7 +142,8 @@ export function decidePolicy(input: PolicyInput): PolicyResult {
   const eligibility = patternConfidence * pv * cr;
 
   const cost = interruptionCost(input, c);
-  const fatigue = interventionFatigue(input, c);
+  const fatigueBreakdown = computeInterventionFatigue(input.priorInterventions, input.now, c.fatigue);
+  const fatigue = fatigueIndexFor(fatigueBreakdown, input.pattern.category);
   const decisionScore = eligibility - cost - fatigue;
 
   let decisionType: InterventionPolicyDecision['decision'];
@@ -160,6 +176,7 @@ export function decidePolicy(input: PolicyInput): PolicyResult {
       eligibility,
       interruptionCost: cost,
       interventionFatigue: fatigue,
+      fatigueBreakdown,
       decisionScore,
       threshold: c.threshold,
       maxFatigueLimit: c.maxFatigueLimit,

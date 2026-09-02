@@ -25,15 +25,18 @@ Success = the person chose consciously — including when they choose to continu
 | 1 | EVENT | `adapters/*` (native) → `core/ingestion/*` (`normalizeEvent` + `createEventCollector`) → `EventSource` port | native + pure TS trust boundary | 1 · Observation |
 | 2 | CONTEXT | `core/engines/context-builder.ts` | pure, state-free | 1 · Observation |
 | 3 | PATTERN | `core/engines/pattern-detector.ts` (baseline-aware) + `session-segmenter.ts` + `baseline.ts` | pure, state-free | 2 · Derived Structure |
+| 3/4 | ARBITRATION | `core/engines/pattern-arbiter.ts` | pure | 2 · Derived Structure |
 | 4 | INTERVENTION CANDIDATE | `core/engines/candidate-generator.ts` *(stub logic)* | pure | 2 · Derived Structure |
-| 5 | INTERVENTION POLICY | `core/engines/policy-engine.ts` **(real maths)** | pure | 3 · Action gate |
+| 5 | INTERVENTION POLICY | `core/engines/policy-engine.ts` + `fatigue.ts` **(real maths)** | pure | 3 · Action gate |
 | 6 | INTERVENTION + AWARENESS WINDOW | `core/engines/intervention-factory.ts` *(stub copy)* | pure | 3 · Action |
 | 7 | HUMAN CHOICE | `ChoiceProvider` port → `app/awareness-window/*` | UI | 4 · Human Sovereignty |
 | 8 | REFLECTION | `core/engines/reflection-mirror.ts` *(stub aggregation)* | pure | 2 · Derived Structure, mirrored back |
 
 `core/pipeline/pipeline.ts` wires the stages in order. It owns no domain logic —
-only event pull, local persistence, the small state the policy maths needs
-(recent intervention timestamps), and telemetry (every outcome, Silence included).
+only event pull, local persistence, resolving the baseline once per `tick()`, and
+telemetry (every outcome, Silence included). It holds **no fatigue state**:
+intervention history is persisted (`LocalStore.appendInterventionRecord`) and
+re-read each event (I-09).
 
 ### Stage 1 detail — ingestion (`core/ingestion/`)
 
@@ -81,6 +84,21 @@ native adapter ──pull drainPendingEvents()───┘   · normalizeEvent (
   - `deviationFromBaselineRatio = observed / baseline median` (a structural
     ratio, never a verdict); every `structuralName` passes `assertStructuralName`.
 
+### Stage 3/4 detail — arbitration (`pattern-arbiter.ts`)
+
+One event can raise several `Pattern`s (a long session is often also dense and
+repetitive). Only one Awareness Window may follow (I-05), so `arbitratePatterns`
+picks one:
+
+```
+arbitrationScore = confidence · categoryWeight · (1 + deviationBoost · normDeviation)
+```
+
+The top score wins if it clears `minArbitrationScore`; a broader structure
+**subsumes** its facets (`ExtendedDuration` → `Repetition`, `TemporalDensity`),
+the rest are marked `OutrankedBySalience`. Every detected pattern still reaches
+the Reflection mirror — arbitration only decides what to *act on*.
+
 ## Decision maths (Stage 5, implemented exactly per spec §4)
 
 ```
@@ -92,16 +110,24 @@ IF DecisionScore ≤ Threshold  OR  InterventionFatigue > MaxFatigueLimit
 ELSE → Intervene          (reason: HighSalienceThresholdMet)
 ```
 
-`PotentialValue`, `ContextRelevance`, `InterruptionCost`, `InterventionFatigue`
-are derived from **structural inputs only** (I-02) with tunable weights in
-`DEFAULT_POLICY_CONFIG`. The rule itself is fixed.
+The rule is fixed. The four quantities are derived from **structural inputs
+only** (I-02) with tunable weights in `DEFAULT_POLICY_CONFIG`:
+
+- **PotentialValue** — structural salience + normalised deviation past the baseline.
+- **ContextRelevance** — base + rest-period bonus + long-active-app term + long-unbroken-session term.
+- **InterruptionCost** — base + per-recent-event cost that *ramps* once the person is mid-burst.
+- **InterventionFatigue** — `computeInterventionFatigue` (`fatigue.ts`): exponential
+  time-decay, a heavier tally for the pattern's **own category**, and
+  per-choice multipliers that are **all ≥ 1** — a conscious `Continue` / `Dismiss`
+  quiets future nudges for that structure (I-01 Agency Above Compliance); nothing
+  in the feedback loop can push toward intervening *more*.
 
 ## Ports (the only seams)
 
-`core/pipeline/ports.ts`: `EventSource`, `ChoiceProvider`, `LocalStore`,
-`PipelineTelemetry`. The core imports no platform SDK, UI toolkit, or database.
-Stub implementations live in `core/adapters-stub/` (used by tests and the E2E
-demo run).
+`core/pipeline/ports.ts`: `EventSource`, `ChoiceProvider`, `LocalStore` (events,
+choices, **intervention records**, reflections), `PipelineTelemetry`. The core
+imports no platform SDK, UI toolkit, or database. Stub implementations live in
+`core/adapters-stub/` (used by tests and the E2E demo run).
 
 ## Invariant enforcement in code
 
@@ -130,7 +156,9 @@ packages/
 1. ✅ **Event Collector** — native adapters + `core/ingestion` normalize/collect/de-bounce.
 2. ✅ **Context & Pattern Engine** — baseline-aware detection (`session-segmenter`,
    `baseline`, `pattern-detector`); `getBaseline` threaded through the pipeline.
-3. **Intervention Policy Engine** — tune weights; multi-pattern arbitration.
+3. ✅ **Intervention Policy Engine** — `pattern-arbiter` (multi-pattern arbitration
+   + subsumption), `fatigue` (decayed, per-category, choice-aware), tuned
+   relevance/cost terms, intervention history persisted in `LocalStore`.
 4. **Awareness Window & Choice Symmetry UI** — RN components on the view-models.
 5. **Reflection Mirror** — on-device encrypted store + non-judgmental facts UI.
 

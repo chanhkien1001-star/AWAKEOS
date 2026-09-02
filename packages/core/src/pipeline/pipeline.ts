@@ -29,6 +29,12 @@ import { generateCandidate, DEFAULT_CANDIDATE_CONFIG, type CandidateGeneratorCon
 import { buildIntervention } from '../engines/intervention-factory.ts';
 import { decidePolicy, DEFAULT_POLICY_CONFIG, type PolicyConfig, type PolicyTrace } from '../engines/policy-engine.ts';
 import { detectPatterns, DEFAULT_PATTERN_CONFIG, type PatternDetectorConfig } from '../engines/pattern-detector.ts';
+import {
+  arbitratePatterns,
+  DEFAULT_ARBITER_CONFIG,
+  type ArbiterConfig,
+  type SuppressedPattern,
+} from '../engines/pattern-arbiter.ts';
 import { buildReflectionMirror, type ReflectionSample } from '../engines/reflection-mirror.ts';
 
 import type { Clock } from '../util/clock.ts';
@@ -40,6 +46,7 @@ export interface PipelineConfig {
   readonly lookbackMs: number;
   readonly context: ContextBuilderOptions;
   readonly pattern: PatternDetectorConfig;
+  readonly arbiter: ArbiterConfig;
   readonly candidate: CandidateGeneratorConfig;
   readonly policy: PolicyConfig;
 }
@@ -48,6 +55,7 @@ export const DEFAULT_PIPELINE_CONFIG: PipelineConfig = Object.freeze({
   lookbackMs: 6 * 60 * 60_000,
   context: {},
   pattern: DEFAULT_PATTERN_CONFIG,
+  arbiter: DEFAULT_ARBITER_CONFIG,
   candidate: DEFAULT_CANDIDATE_CONFIG,
   policy: DEFAULT_POLICY_CONFIG,
 });
@@ -77,13 +85,20 @@ export interface ReturnMoment {
 }
 
 export type PipelineOutcome =
-  | { readonly kind: 'NoPattern'; readonly event: Event; readonly context: Context }
+  | {
+      readonly kind: 'NoPattern';
+      readonly event: Event;
+      readonly context: Context;
+      /** Patterns that were detected but did not survive arbitration, if any. */
+      readonly suppressed: readonly SuppressedPattern[];
+    }
   | { readonly kind: 'NoCandidate'; readonly event: Event; readonly context: Context; readonly pattern: Pattern }
   | {
       readonly kind: 'Silence';
       readonly event: Event;
       readonly context: Context;
       readonly pattern: Pattern;
+      readonly suppressed: readonly SuppressedPattern[];
       readonly candidate: InterventionCandidate;
       readonly decision: InterventionPolicyDecision;
       readonly trace: PolicyTrace;
@@ -93,6 +108,7 @@ export type PipelineOutcome =
       readonly event: Event;
       readonly context: Context;
       readonly pattern: Pattern;
+      readonly suppressed: readonly SuppressedPattern[];
       readonly candidate: InterventionCandidate;
       readonly decision: InterventionPolicyDecision;
       readonly trace: PolicyTrace;
@@ -115,19 +131,20 @@ export function createPipeline(deps: PipelineDeps): Pipeline {
     ...deps.config,
     context: { ...DEFAULT_PIPELINE_CONFIG.context, ...deps.config?.context },
     pattern: { ...DEFAULT_PIPELINE_CONFIG.pattern, ...deps.config?.pattern },
+    arbiter: { ...DEFAULT_PIPELINE_CONFIG.arbiter, ...deps.config?.arbiter },
     candidate: { ...DEFAULT_PIPELINE_CONFIG.candidate, ...deps.config?.candidate },
-    policy: { ...DEFAULT_PIPELINE_CONFIG.policy, ...deps.config?.policy },
+    policy: {
+      ...DEFAULT_PIPELINE_CONFIG.policy,
+      ...deps.config?.policy,
+      weights: { ...DEFAULT_PIPELINE_CONFIG.policy.weights, ...deps.config?.policy?.weights },
+      fatigue: { ...DEFAULT_PIPELINE_CONFIG.policy.fatigue, ...deps.config?.policy?.fatigue },
+    },
   };
   const tel = deps.telemetry ?? noopTelemetry;
 
-  // Minimal cross-event state (needed only by the policy maths + reflection).
-  const recentInterventionTimestamps: number[] = [];
+  // The pipeline holds no fatigue state of its own: intervention history is
+  // persisted to the local store and re-read each event (I-09).
   const reflectionSamples: ReflectionSample[] = [];
-
-  function topPattern(patterns: readonly Pattern[]): Pattern | null {
-    if (patterns.length === 0) return null;
-    return [...patterns].sort((a, b) => b.confidenceScore - a.confidenceScore)[0]!;
-  }
 
   async function processEvent(event: Event, baseline: BehavioralBaseline): Promise<PipelineOutcome> {
     await deps.store.appendEvent(event); // I-09: persist locally first
@@ -142,15 +159,21 @@ export function createPipeline(deps: PipelineDeps): Pipeline {
     // Stage 3 — PATTERN (compared against the person's own baseline)
     const patterns = detectPatterns(preceding, context, baseline, deps.ids, deps.clock, cfg.pattern);
     // The Reflection mirror is a neutral mirror of structure: record every
-    // detected pattern, independent of what the policy engine later acts on.
+    // detected pattern, independent of what arbitration / the policy acts on.
     for (const p of patterns) reflectionSamples.push({ pattern: p, context });
 
-    const pattern = topPattern(patterns);
+    // Stage 3/4 — ARBITRATION: one event -> at most one structure to act on.
+    const { selected: pattern, suppressed } = arbitratePatterns(patterns, context, cfg.arbiter);
     if (!pattern) {
-      tel.stage('pattern', { eventId: event.id, detected: 0 });
-      return { kind: 'NoPattern', event, context };
+      tel.stage('pattern', { eventId: event.id, detected: patterns.length, selected: null });
+      return { kind: 'NoPattern', event, context, suppressed };
     }
-    tel.stage('pattern', { eventId: event.id, detected: patterns.length, chosen: pattern.structuralName });
+    tel.stage('pattern', {
+      eventId: event.id,
+      detected: patterns.length,
+      chosen: pattern.structuralName,
+      suppressed: suppressed.map((s) => `${s.pattern.structuralName}:${s.reason}`),
+    });
 
     // Stage 4 — INTERVENTION CANDIDATE
     const candidate = generateCandidate(pattern, context, deps.ids, deps.clock, cfg.candidate);
@@ -160,20 +183,31 @@ export function createPipeline(deps: PipelineDeps): Pipeline {
     }
     tel.stage('candidate', { candidateId: candidate.id, salience: candidate.salienceScore });
 
-    // Stage 5 — INTERVENTION POLICY
+    // Stage 5 — INTERVENTION POLICY (fatigue read from persisted history, I-09)
+    const now = deps.clock.now();
+    const priorInterventions = await deps.store.readInterventionRecords(
+      now - cfg.policy.fatigue.windowMs,
+      now + 1,
+    );
     const { decision, trace } = decidePolicy({
       candidate,
       pattern,
       context,
-      recentInterventionTimestamps,
-      now: deps.clock.now(),
+      priorInterventions,
+      now,
       config: cfg.policy,
     });
-    tel.stage('policy', { candidateId: candidate.id, decision: decision.decision, reason: decision.decisionReason, decisionScore: trace.decisionScore });
+    tel.stage('policy', {
+      candidateId: candidate.id,
+      decision: decision.decision,
+      reason: decision.decisionReason,
+      decisionScore: trace.decisionScore,
+      fatigueIndex: decision.fatigueIndex,
+    });
 
     if (decision.decision === 'Silence') {
       // I-04: Silence is a first-class, logged outcome — not a failure path.
-      return { kind: 'Silence', event, context, pattern, candidate, decision, trace };
+      return { kind: 'Silence', event, context, pattern, suppressed, candidate, decision, trace };
     }
 
     // Stage 6 — INTERVENTION + AWARENESS WINDOW
@@ -183,7 +217,16 @@ export function createPipeline(deps: PipelineDeps): Pipeline {
     // Stage 7 — HUMAN CHOICE (rendered by the ChoiceProvider port)
     const choice = await deps.choiceProvider.present(awarenessWindow, intervention);
     await deps.store.appendChoice(choice);
-    recentInterventionTimestamps.push(intervention.triggeredAt);
+    await deps.store.appendInterventionRecord({
+      interventionId: intervention.id,
+      candidateId: candidate.id,
+      patternId: pattern.id,
+      awarenessWindowId: awarenessWindow.id,
+      category: pattern.category,
+      triggeredAt: intervention.triggeredAt,
+      choice: choice.choice,
+      choiceAt: choice.selectedAt,
+    });
     tel.stage('choice', { awarenessWindowId: awarenessWindow.id, choice: choice.choice });
 
     const returnMoment: ReturnMoment | undefined =
@@ -192,8 +235,8 @@ export function createPipeline(deps: PipelineDeps): Pipeline {
         : undefined;
 
     return returnMoment === undefined
-      ? { kind: 'Choice', event, context, pattern, candidate, decision, trace, intervention, awarenessWindow, choice }
-      : { kind: 'Choice', event, context, pattern, candidate, decision, trace, intervention, awarenessWindow, choice, returnMoment };
+      ? { kind: 'Choice', event, context, pattern, suppressed, candidate, decision, trace, intervention, awarenessWindow, choice }
+      : { kind: 'Choice', event, context, pattern, suppressed, candidate, decision, trace, intervention, awarenessWindow, choice, returnMoment };
   }
 
   return {

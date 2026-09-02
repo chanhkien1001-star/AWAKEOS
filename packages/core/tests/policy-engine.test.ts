@@ -3,15 +3,16 @@ import assert from 'node:assert/strict';
 
 import type { Context } from '../src/contracts/context.contract.ts';
 import type { InterventionCandidate } from '../src/contracts/intervention-candidate.contract.ts';
-import type { Pattern } from '../src/contracts/pattern.contract.ts';
+import type { Pattern, PatternCategory } from '../src/contracts/pattern.contract.ts';
 import { decidePolicy, DEFAULT_POLICY_CONFIG, type PolicyInput } from '../src/engines/policy-engine.ts';
+import type { PriorInterventionSummary } from '../src/engines/fatigue.ts';
 
-function pattern(confidence: number, deviation: number): Pattern {
+function pattern(confidence: number, deviation: number, category: PatternCategory = 'ExtendedDuration'): Pattern {
   return {
     id: 'p1',
     detectedAt: 0,
-    category: 'ExtendedDuration',
-    structuralName: 'ExtendedContinuousInteractionPattern',
+    category,
+    structuralName: category === 'ExtendedDuration' ? 'ExtendedContinuousInteractionPattern' : 'RapidRepeatedTransition',
     metrics: { eventDensity: 0, transitionCount: 0, totalDurationMs: 60 * 60_000, deviationFromBaselineRatio: deviation },
     confidenceScore: confidence,
     supportingEventIds: ['ev-1'],
@@ -34,18 +35,21 @@ function candidate(salience: number): InterventionCandidate {
   return { id: 'cand1', generatedAt: 0, patternId: 'p1', contextId: 'c1', salienceScore: salience, schemaVersion: '1.0.0' };
 }
 
+const NOW = 10_000_000;
+const prior = (ageMs: number, category: PatternCategory, choice?: PriorInterventionSummary['choice']): PriorInterventionSummary =>
+  choice === undefined ? { triggeredAt: NOW - ageMs, category } : { triggeredAt: NOW - ageMs, category, choice };
+
 const baseInput = (over: Partial<PolicyInput> = {}): PolicyInput => ({
   candidate: candidate(0.9),
   pattern: pattern(0.9, 3),
   context: context(60 * 60_000, true, 5),
-  recentInterventionTimestamps: [],
-  now: 2_000_000,
+  priorInterventions: [],
+  now: NOW,
   ...over,
 });
 
 test('I-04: Silence is a normal return value, never thrown', () => {
-  const weak = baseInput({ candidate: candidate(0.01), pattern: pattern(0.05, 1) });
-  const { decision } = decidePolicy(weak);
+  const { decision } = decidePolicy(baseInput({ candidate: candidate(0.01), pattern: pattern(0.05, 1) }));
   assert.equal(decision.decision, 'Silence');
   assert.equal(decision.decisionReason, 'EpistemicUncertainty');
 });
@@ -58,21 +62,45 @@ test('high eligibility, no fatigue -> Intervene / HighSalienceThresholdMet', () 
 });
 
 test('fatigue above MaxFatigueLimit forces Silence even with strong eligibility', () => {
-  // 4 interventions within the 3h window * 0.2 = 0.8 > 0.6 limit
-  const now = 10_000_000;
-  const recent = [now - 1000, now - 2000, now - 3000, now - 4000];
-  const { decision } = decidePolicy(baseInput({ now, recentInterventionTimestamps: recent }));
+  const priors = [prior(1_000, 'ExtendedDuration'), prior(2_000, 'ExtendedDuration'), prior(3_000, 'ExtendedDuration')];
+  const { decision } = decidePolicy(baseInput({ priorInterventions: priors }));
   assert.equal(decision.decision, 'Silence');
   assert.equal(decision.decisionReason, 'InterventionFatigue');
   assert.ok(decision.fatigueIndex > DEFAULT_POLICY_CONFIG.maxFatigueLimit);
 });
 
 test('interventions outside the fatigue window do not accrue fatigue', () => {
-  const now = 10_000_000;
-  const old = [now - 4 * 60 * 60_000, now - 5 * 60 * 60_000]; // older than 3h
-  const { decision } = decidePolicy(baseInput({ now, recentInterventionTimestamps: old }));
+  const old = [prior(4 * 60 * 60_000, 'ExtendedDuration'), prior(5 * 60 * 60_000, 'ExtendedDuration')];
+  const { decision } = decidePolicy(baseInput({ priorInterventions: old }));
   assert.equal(decision.fatigueIndex, 0);
   assert.equal(decision.decision, 'Intervene');
+});
+
+test('fatigue decays: an intervention several half-lives ago barely counts', () => {
+  const fresh = decidePolicy(baseInput({ priorInterventions: [prior(60_000, 'ExtendedDuration'), prior(90_000, 'ExtendedDuration')] }));
+  const stale = decidePolicy(baseInput({
+    priorInterventions: [prior(150 * 60_000, 'ExtendedDuration'), prior(160 * 60_000, 'ExtendedDuration')],
+  }));
+  assert.ok(stale.decision.fatigueIndex < fresh.decision.fatigueIndex);
+});
+
+test('I-01: one conscious "Continue" quiets the SAME structure, but not another', () => {
+  const priors = [prior(30_000, 'ExtendedDuration', 'Continue')];
+
+  const sameCategory = decidePolicy(baseInput({ priorInterventions: priors }));
+  assert.equal(sameCategory.decision.decision, 'Silence');
+  assert.equal(sameCategory.decision.decisionReason, 'InterventionFatigue');
+
+  const otherCategory = decidePolicy(
+    baseInput({ priorInterventions: priors, pattern: pattern(0.9, 3, 'RapidTransition') }),
+  );
+  assert.equal(otherCategory.decision.decision, 'Intervene');
+});
+
+test('choice feedback only ever raises fatigue: "Continue" weighs more than "Exit"', () => {
+  const afterContinue = decidePolicy(baseInput({ priorInterventions: [prior(30_000, 'ExtendedDuration', 'Continue')] }));
+  const afterExit = decidePolicy(baseInput({ priorInterventions: [prior(30_000, 'ExtendedDuration', 'Exit')] }));
+  assert.ok(afterContinue.decision.fatigueIndex > afterExit.decision.fatigueIndex);
 });
 
 test('calculatedEligibility equals confidence * potentialValue * contextRelevance and stays in [0,1]', () => {
@@ -83,7 +111,7 @@ test('calculatedEligibility equals confidence * potentialValue * contextRelevanc
 });
 
 test('DecisionScore == Eligibility - InterruptionCost - InterventionFatigue', () => {
-  const { trace } = decidePolicy(baseInput());
+  const { trace } = decidePolicy(baseInput({ priorInterventions: [prior(30_000, 'ExtendedDuration')] }));
   assert.ok(
     Math.abs(trace.decisionScore - (trace.eligibility - trace.interruptionCost - trace.interventionFatigue)) < 1e-9,
   );
