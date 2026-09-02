@@ -12,7 +12,9 @@
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test:core": "npm run test -w @awake-os/core",
-    "typecheck:core": "npm run typecheck -w @awake-os/core"
+    "typecheck:core": "npm run typecheck -w @awake-os/core",
+    "demo": "node packages/app/src/demo/main.ts",
+    "verify": "npm run typecheck && npm test && npm run demo"
   },
   "engines": {
     "node": ">=24.0.0"

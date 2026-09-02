@@ -1,0 +1,16 @@
+{
+  "name": "@awake-os/mobile",
+  "version": "0.0.0",
+  "private": true,
+  "description": "React Native host app for Human Agency OS. Not part of the npm workspace — compiled inside a standard RN project. See README.md.",
+  "//": "Dependency list is a reference; a real RN init generates the rest.",
+  "dependencies": {
+    "@awake-os/app": "*",
+    "@awake-os/core": "*",
+    "react": "19.x",
+    "react-native": "0.76.x",
+    "react-native-keychain": "^9.x",
+    "react-native-mmkv": "^3.x",
+    "react-native-quick-crypto": "^0.7.x"
+  }
+}

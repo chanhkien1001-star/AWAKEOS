@@ -26,7 +26,11 @@ import type { ReflectionMirror } from '../contracts/reflection.contract.ts';
 import { buildContext, type ContextBuilderOptions } from '../engines/context-builder.ts';
 import { emptyBaseline, type BehavioralBaseline } from '../engines/baseline.ts';
 import { generateCandidate, DEFAULT_CANDIDATE_CONFIG, type CandidateGeneratorConfig } from '../engines/candidate-generator.ts';
-import { buildIntervention } from '../engines/intervention-factory.ts';
+import {
+  buildIntervention,
+  DEFAULT_INTERVENTION_FACTORY_CONFIG,
+  type InterventionFactoryConfig,
+} from '../engines/intervention-factory.ts';
 import { decidePolicy, DEFAULT_POLICY_CONFIG, type PolicyConfig, type PolicyTrace } from '../engines/policy-engine.ts';
 import { detectPatterns, DEFAULT_PATTERN_CONFIG, type PatternDetectorConfig } from '../engines/pattern-detector.ts';
 import {
@@ -48,6 +52,7 @@ export interface PipelineConfig {
   readonly pattern: PatternDetectorConfig;
   readonly arbiter: ArbiterConfig;
   readonly candidate: CandidateGeneratorConfig;
+  readonly interventionFactory: InterventionFactoryConfig;
   readonly policy: PolicyConfig;
 }
 
@@ -57,6 +62,7 @@ export const DEFAULT_PIPELINE_CONFIG: PipelineConfig = Object.freeze({
   pattern: DEFAULT_PATTERN_CONFIG,
   arbiter: DEFAULT_ARBITER_CONFIG,
   candidate: DEFAULT_CANDIDATE_CONFIG,
+  interventionFactory: DEFAULT_INTERVENTION_FACTORY_CONFIG,
   policy: DEFAULT_POLICY_CONFIG,
 });
 
@@ -133,6 +139,7 @@ export function createPipeline(deps: PipelineDeps): Pipeline {
     pattern: { ...DEFAULT_PIPELINE_CONFIG.pattern, ...deps.config?.pattern },
     arbiter: { ...DEFAULT_PIPELINE_CONFIG.arbiter, ...deps.config?.arbiter },
     candidate: { ...DEFAULT_PIPELINE_CONFIG.candidate, ...deps.config?.candidate },
+    interventionFactory: { ...DEFAULT_PIPELINE_CONFIG.interventionFactory, ...deps.config?.interventionFactory },
     policy: {
       ...DEFAULT_PIPELINE_CONFIG.policy,
       ...deps.config?.policy,
@@ -222,7 +229,14 @@ export function createPipeline(deps: PipelineDeps): Pipeline {
     }
 
     // Stage 6 — INTERVENTION + AWARENESS WINDOW
-    const { intervention, awarenessWindow } = buildIntervention(candidate, pattern, context, deps.ids, deps.clock);
+    const { intervention, awarenessWindow } = buildIntervention(
+      candidate,
+      pattern,
+      context,
+      deps.ids,
+      deps.clock,
+      cfg.interventionFactory,
+    );
     tel.stage('intervention', { interventionId: intervention.id, modality: intervention.modality });
 
     // Stage 7 — HUMAN CHOICE (rendered by the ChoiceProvider port)

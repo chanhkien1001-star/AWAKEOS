@@ -24,4 +24,7 @@ export * from './reflection-mirror/reflection-range.ts';
 // Local-first storage adapters
 export * from './storage/index.ts';
 
+// Runtime assembly
+export * from './runtime/awake-runtime.ts';
+
 export * from './return-moment/return-moment.ts';

@@ -1,27 +1,26 @@
 /**
- * STAGE 6 — [INTERVENTION] -> [AWARENESS WINDOW]   (pure)   ***STUB COPY***
+ * STAGE 6 — [INTERVENTION] -> [AWARENESS WINDOW]   (pure, state-free)
  *
  * Only reached when Stage 5 returned `Intervene`. Builds the Intervention and the
- * Awareness Window that the ChoiceProvider will render.
+ * Awareness Window the ChoiceProvider renders.
  *
  * Invariants enforced here:
  *  - I-12 Non-Coercive Transparency: `payloadText` states the observed structure
- *    and *why* the window opened. Runs through `assertNonCoerciveText` — a
- *    judgmental or pressuring string throws at build time.
- *  - I-05 Minimum Necessary Intervention: `activeDurationMs` is a 2000-5000ms hold.
- *  - I-08 Reversibility: `modalitySpec` is always dismissible and never hard-blocks
- *    input; `assertReversible` guards it.
+ *    and *why* the window opened, in plain words. `assertNonCoerciveText` throws
+ *    on any judgmental or pressuring string at build time.
+ *  - I-05 Minimum Necessary Intervention: `activeDurationMs` is a short hold
+ *    (2000-5000ms), scaled modestly by salience and the rest-period context.
+ *  - I-08 Reversibility: `modalitySpec` is always dismissible and never
+ *    hard-blocks input; `assertReversible` guards it.
  *
- * The copy strings below are placeholders for Step 4 (final UX wording review).
+ * Modality is the primary sensory channel; the choice controls are always
+ * present regardless (I-13). It is chosen from the candidate salience and the
+ * context, not from any inferred state.
  */
 
 import type { Context } from '../contracts/context.contract.ts';
 import type { InterventionCandidate } from '../contracts/intervention-candidate.contract.ts';
-import type {
-  AwarenessWindow,
-  Intervention,
-  InterventionModality,
-} from '../contracts/intervention.contract.ts';
+import type { AwarenessWindow, Intervention, InterventionModality } from '../contracts/intervention.contract.ts';
 import type { Pattern } from '../contracts/pattern.contract.ts';
 import { assertNonCoerciveText, assertReversible } from '../invariants/invariants.ts';
 import type { Clock } from '../util/clock.ts';
@@ -34,31 +33,56 @@ export interface ModalitySpec {
   readonly activeDurationMs: number;
 }
 
-const MIN_HOLD_MS = 2_000;
-const MAX_HOLD_MS = 5_000;
-const clampHold = (ms: number) => Math.max(MIN_HOLD_MS, Math.min(MAX_HOLD_MS, ms));
-
-function modalityFor(pattern: Pattern): ModalitySpec {
-  switch (pattern.category) {
-    case 'ExtendedDuration':
-      return { modality: 'VisualPauseOverlay', dismissible: true, blocksInput: false, activeDurationMs: 4_000 };
-    case 'RapidTransition':
-      return { modality: 'ContextualPrompt', dismissible: true, blocksInput: false, activeDurationMs: 3_000 };
-    case 'Repetition':
-      return { modality: 'HapticPulse', dismissible: true, blocksInput: false, activeDurationMs: 2_000 };
-    case 'TemporalDensity':
-    default:
-      return { modality: 'VisualPauseOverlay', dismissible: true, blocksInput: false, activeDurationMs: 3_000 };
-  }
+export interface InterventionFactoryConfig {
+  readonly minHoldMs: number;
+  readonly maxHoldMs: number;
+  /** Base hold before the salience term. */
+  readonly holdBaseMs: number;
+  /** Added to the hold, scaled by candidate salience. */
+  readonly holdSalienceMs: number;
+  /** Added to the hold during a user-defined rest period. */
+  readonly holdRestBonusMs: number;
+  /** At or above this salience, use a ContextualPrompt (a considered choice). */
+  readonly contextualPromptSalienceThreshold: number;
 }
 
-/** Transparent, structural sentence describing what was observed (I-12). */
+export const DEFAULT_INTERVENTION_FACTORY_CONFIG: InterventionFactoryConfig = Object.freeze({
+  minHoldMs: 2_000,
+  maxHoldMs: 5_000,
+  holdBaseMs: 2_500,
+  holdSalienceMs: 1_500,
+  holdRestBonusMs: 500,
+  contextualPromptSalienceThreshold: 0.75,
+});
+
+const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
+
+function chooseModality(
+  pattern: Pattern,
+  context: Context,
+  salience: number,
+  cfg: InterventionFactoryConfig,
+): InterventionModality {
+  if (salience >= cfg.contextualPromptSalienceThreshold && !context.temporal.isUserDefinedRestPeriod) {
+    return 'ContextualPrompt';
+  }
+  if (context.temporal.isUserDefinedRestPeriod) return 'VisualPauseOverlay';
+  if (pattern.category === 'Repetition') return 'HapticPulse';
+  return 'VisualPauseOverlay';
+}
+
+function holdMs(context: Context, salience: number, cfg: InterventionFactoryConfig): number {
+  const rest = context.temporal.isUserDefinedRestPeriod ? cfg.holdRestBonusMs : 0;
+  return clamp(cfg.holdBaseMs + cfg.holdSalienceMs * salience + rest, cfg.minHoldMs, cfg.maxHoldMs);
+}
+
+/** A transparent, structural sentence describing what was observed (I-12). */
 function describe(pattern: Pattern, context: Context): string {
   const m = pattern.metrics;
   switch (pattern.structuralName) {
     case 'ExtendedContinuousInteractionPattern': {
       const minutes = Math.round(context.sequence.activeSubjectDurationMs / 60_000);
-      return `Current application has been in the foreground for ${minutes} minutes without a break.`;
+      return `The current application has been in the foreground for about ${minutes} minutes without a break.`;
     }
     case 'RapidRepeatedTransition': {
       const seconds = Math.round(m.totalDurationMs / 1000);
@@ -69,7 +93,7 @@ function describe(pattern: Pattern, context: Context): string {
     case 'RepeatedDiscreteInputPattern':
       return `The same action was recorded ${m.transitionCount} times in a row.`;
     default:
-      return `A structural pattern (${pattern.structuralName}) crossed its threshold.`;
+      return `A structural threshold for ${pattern.structuralName} was crossed.`;
   }
 }
 
@@ -85,8 +109,15 @@ export function buildIntervention(
   context: Context,
   ids: IdFactory,
   clock: Clock,
+  config: InterventionFactoryConfig = DEFAULT_INTERVENTION_FACTORY_CONFIG,
 ): BuiltIntervention {
-  const modalitySpec = modalityFor(pattern);
+  const modality = chooseModality(pattern, context, candidate.salienceScore, config);
+  const modalitySpec: ModalitySpec = {
+    modality,
+    dismissible: true,
+    blocksInput: false,
+    activeDurationMs: holdMs(context, candidate.salienceScore, config),
+  };
   assertReversible(modalitySpec); // I-08
 
   const payloadText =
@@ -99,7 +130,7 @@ export function buildIntervention(
     id: ids.uuid(),
     candidateId: candidate.id,
     triggeredAt,
-    modality: modalitySpec.modality,
+    modality,
     payloadText,
   };
 
@@ -107,7 +138,7 @@ export function buildIntervention(
     id: ids.uuid(),
     interventionId: intervention.id,
     openedAt: triggeredAt,
-    activeDurationMs: clampHold(modalitySpec.activeDurationMs),
+    activeDurationMs: modalitySpec.activeDurationMs,
   };
 
   return { intervention, awarenessWindow, modalitySpec };

@@ -26,9 +26,9 @@ Success = the person chose consciously — including when they choose to continu
 | 2 | CONTEXT | `core/engines/context-builder.ts` | pure, state-free | 1 · Observation |
 | 3 | PATTERN | `core/engines/pattern-detector.ts` (baseline-aware) + `session-segmenter.ts` + `baseline.ts` | pure, state-free | 2 · Derived Structure |
 | 3/4 | ARBITRATION | `core/engines/pattern-arbiter.ts` | pure | 2 · Derived Structure |
-| 4 | INTERVENTION CANDIDATE | `core/engines/candidate-generator.ts` *(stub logic)* | pure | 2 · Derived Structure |
+| 4 | INTERVENTION CANDIDATE | `core/engines/candidate-generator.ts` | pure | 2 · Derived Structure |
 | 5 | INTERVENTION POLICY | `core/engines/policy-engine.ts` + `fatigue.ts` **(real maths)** | pure | 3 · Action gate |
-| 6 | INTERVENTION + AWARENESS WINDOW | `core/engines/intervention-factory.ts` *(stub copy)* | pure | 3 · Action |
+| 6 | INTERVENTION + AWARENESS WINDOW | `core/engines/intervention-factory.ts` | pure | 3 · Action |
 | 7 | HUMAN CHOICE | `ChoiceProvider` port → `app/awareness-window/*` | UI | 4 · Human Sovereignty |
 | 8 | REFLECTION | `core/engines/reflection-mirror.ts` *(stub aggregation)* | pure | 2 · Derived Structure, mirrored back |
 
@@ -235,7 +235,28 @@ packages/
    rebuilds from the store; `createPersistentLocalStore` (encrypted, retention/prune)
    with MMKV + AES-GCM app adapters; render descriptor + `ReflectionMirror.tsx`.
 
-All five steps have real logic. The engine runs end-to-end through the pure core
-and stub adapters; the platform-native pieces (Kotlin/Swift collectors, RN
-components) are complete reference code compiled in a host app. See
-`packages/core/tests/*.e2e.test.ts`.
+All five steps have real logic — including the Stage 4 candidate generator
+(salience from confidence + baseline deviation + category weight, amplified by
+rest period / unbroken session) and the Stage 6 intervention factory
+(salience-aware modality + 2–5 s hold + transparent per-structure copy).
+
+## Running the engine
+
+- **`createAwakeRuntime(deps)`** (`app/src/runtime/awake-runtime.ts`) assembles
+  `PersistentLocalStore` + `LocalBaselineProvider` + `Pipeline` from the ports.
+  A host passes platform ports; tests pass stubs.
+- **`npm run demo`** (`app/src/demo/run-demo.ts`) drives a synthetic 14-day
+  history + a 45-minute evening through the runtime with a headless
+  `ChoiceProvider` (the real Awareness Window controller, console-printed). It is
+  a living smoke test — `app/tests/demo.test.ts` asserts it produces ≥1 window,
+  Silence of both kinds, and a non-judgmental mirror.
+- **`apps/mobile/`** — reference RN host: `bootstrap.ts` (native module +
+  `react-native-mmkv` backend + Keychain key + `react-native-quick-crypto`
+  webcrypto) and `AwakeApp.tsx` (mounts `AwarenessWindowHost` + `ReflectionMirror`,
+  runs a 15 s tick loop + 6 h prune).
+- **CI** (`.github/workflows/ci.yml`): `npm ci` → typecheck → tests → demo, on
+  push / PR to `main`/`master`.
+
+The engine runs end-to-end through the pure core and stub adapters; the
+platform-native pieces (Kotlin/Swift collectors, RN components) are complete
+reference code compiled in a host app. See `packages/core/tests/*.e2e.test.ts`.
