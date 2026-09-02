@@ -46,7 +46,9 @@ android {
         }
         release {
             signingConfig project.hasProperty('AWAKE_UPLOAD_STORE_FILE') ? signingConfigs.release : signingConfigs.debug
-            minifyEnabled enableProguardInReleaseBuilds
+            // -PAWAKE_DISABLE_MINIFY=1 for a fast, un-shrunk test APK (CI).
+            minifyEnabled project.hasProperty('AWAKE_DISABLE_MINIFY') ? false : enableProguardInReleaseBuilds
+            shrinkResources project.hasProperty('AWAKE_DISABLE_MINIFY') ? false : enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }
     }

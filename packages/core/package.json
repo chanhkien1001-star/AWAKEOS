@@ -4,6 +4,8 @@
   "private": true,
   "description": "Pure-TypeScript core: 8 frozen data contracts + the 8-stage EVENT -> REFLECTION pipeline. Platform-agnostic, zero runtime dependencies.",
   "type": "module",
+  "main": "./src/index.ts",
+  "react-native": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts"
   },

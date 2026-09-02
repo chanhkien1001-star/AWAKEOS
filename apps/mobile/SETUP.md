@@ -3,6 +3,17 @@
 The whole project tree is here **except three files that are binary or
 version-generated** and cannot live in this text repo. Two commands fill them.
 
+## No PC? Build the test APK in CI
+
+Run the **`android-apk`** GitHub Actions workflow (Actions tab → *android-apk* →
+*Run workflow*). It generates the Gradle wrapper, builds a standalone
+debug-signed release APK (JS bundled, no Metro needed), and uploads it as the
+`awakeos-test-apk` artifact. Download it, enable "install unknown apps" on the
+phone, and sideload. It is **not** a Play Store build — that needs the real
+upload key + an `.aab` (see `../../docs/RELEASE.md`).
+
+Everything below is for building locally instead.
+
 ## Prerequisites
 
 - **Node ≥ 18**, **JDK 17** (Temurin), **Android Studio** with:

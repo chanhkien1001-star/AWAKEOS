@@ -3,10 +3,11 @@
  * compiled inside a React Native project, not by this repo.
  */
 
+// `index.js` calls quick-crypto `install()`, so `globalThis.crypto` (incl.
+// `randomUUID` and `subtle`) and `Buffer` are available here.
 import { NativeEventEmitter, NativeModules } from 'react-native';
 import { MMKV } from 'react-native-mmkv';
 import * as Keychain from 'react-native-keychain';
-import QuickCrypto from 'react-native-quick-crypto';
 
 import { createEventCollector, cryptoIdFactory, systemClock, type EncryptionPort, type StorageBackend } from '@awake-os/core';
 import {
@@ -26,7 +27,7 @@ async function getOrCreateStorageKey(): Promise<Uint8Array> {
   const existing = await Keychain.getGenericPassword({ service: KEYCHAIN_SERVICE });
   if (existing) return Uint8Array.from(Buffer.from(existing.password, 'base64'));
 
-  const fresh = QuickCrypto.getRandomValues(new Uint8Array(32));
+  const fresh = globalThis.crypto.getRandomValues(new Uint8Array(32));
   await Keychain.setGenericPassword('key', Buffer.from(fresh).toString('base64'), {
     service: KEYCHAIN_SERVICE,
     accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
@@ -42,8 +43,8 @@ export function buildStorage(): { backend: StorageBackend; encryption: Promise<E
   cachedBackend ??= createMmkvStorageBackend(new MMKV({ id: 'awake-os' }));
   cachedEncryption ??= (async () =>
     createAesGcmEncryption({
-      subtle: QuickCrypto.subtle as never,
-      random: { getRandomValues: (a) => QuickCrypto.getRandomValues(a) },
+      subtle: globalThis.crypto.subtle as never,
+      random: { getRandomValues: (a) => globalThis.crypto.getRandomValues(a) },
       keyBytes: await getOrCreateStorageKey(),
     }))();
   return { backend: cachedBackend, encryption: cachedEncryption };

@@ -4,6 +4,8 @@
   "private": true,
   "description": "Shell / UI layer. Framework-agnostic view-models (.ts, compiled + tested) plus React Native component stubs (.tsx, wired up in Step 4).",
   "type": "module",
+  "main": "./src/index.ts",
+  "react-native": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
     "./*": "./src/*"

@@ -78,27 +78,22 @@ cd android && ./gradlew bundleRelease
 # -> android/app/build/outputs/bundle/release/app-release.aab
 ```
 
-### CI alternative (no Android Studio) — GitHub Actions
+### CI — two workflows
 
-Add secrets: `ANDROID_KEYSTORE_BASE64` (`base64 -w0 awake-upload.jks`),
-`ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`.
+- **`.github/workflows/android-apk.yml`** (`android-apk`) — already in the repo.
+  Manual run (`workflow_dispatch`) or on a `v*` tag. Builds a **debug-signed,
+  unshrunk, JS-bundled release APK** and uploads it as `awakeos-test-apk`. For
+  device testing / sharing with testers — **not** for Play.
 
-```yaml
-name: android-release
-on: { workflow_dispatch: {} }
-jobs:
-  aab:
-    runs-on: ubuntu-latest
-    defaults: { run: { working-directory: apps/mobile } }
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: "24" }
-      - uses: actions/setup-java@v4
-        with: { distribution: temurin, java-version: "17" }
-      - run: npm ci
-      - run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/app/awake-upload.jks
-      - run: cd android && ./gradlew bundleRelease
+- **Play `.aab`** — add a second workflow when your upload keystore exists. Add
+  secrets `ANDROID_KEYSTORE_BASE64` (`base64 -w0 awake-upload.jks`),
+  `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`, then
+  the same steps as `android-apk.yml` but ending with:
+
+  ```yaml
+      - run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > apps/mobile/android/app/awake-upload.jks
+      - working-directory: apps/mobile/android
+        run: ./gradlew bundleRelease --no-daemon
         env:
           AWAKE_UPLOAD_STORE_FILE: awake-upload.jks
           AWAKE_UPLOAD_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -106,10 +101,7 @@ jobs:
           AWAKE_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
       - uses: actions/upload-artifact@v4
         with: { name: app-release-aab, path: apps/mobile/android/app/build/outputs/bundle/release/app-release.aab }
-```
-
-You still need Part B done once so `apps/mobile/` is a real project with an
-`android/` folder.
+  ```
 
 ---
 

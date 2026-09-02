@@ -1,0 +1,98 @@
+name: android-apk
+
+# Builds a standalone, debug-signed APK you can sideload onto a phone for
+# testing — no Android Studio, no Metro. It is NOT a Play Store build (that
+# needs the real upload key + an .aab; see docs/RELEASE.md).
+
+on:
+  workflow_dispatch:
+    inputs:
+      abi:
+        description: "Target ABI (arm64-v8a covers ~all modern phones)"
+        type: choice
+        default: arm64-v8a
+        options: [arm64-v8a, "arm64-v8a,armeabi-v7a"]
+  push:
+    tags: ["v*"]
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: apps/mobile
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Cache ~/.npm and ~/.gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.npm
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: android-apk-${{ hashFiles('apps/mobile/package.json', 'apps/mobile/android/**/*.gradle') }}
+          restore-keys: android-apk-
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install SDK packages
+        run: |
+          sdkmanager --install \
+            "platforms;android-34" \
+            "build-tools;34.0.0" \
+            "ndk;26.1.10909125" \
+            "cmake;3.22.1"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+
+      - name: Install JS dependencies
+        run: npm install
+
+      - name: Generate the Gradle wrapper
+        working-directory: apps/mobile/android
+        run: |
+          gradle wrapper --gradle-version 8.10.2 --distribution-type bin
+          chmod +x gradlew
+
+      - name: Debug keystore (fallback signer for the test APK)
+        working-directory: apps/mobile/android/app
+        run: |
+          keytool -genkeypair -v -storetype PKCS12 -keystore debug.keystore \
+            -alias androiddebugkey -storepass android -keypass android \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+
+      - name: Build release APK (unshrunk, JS bundled, debug-signed)
+        working-directory: apps/mobile/android
+        run: |
+          ./gradlew assembleRelease \
+            -PAWAKE_DISABLE_MINIFY=1 \
+            -PreactNativeArchitectures=${{ github.event.inputs.abi || 'arm64-v8a' }} \
+            --no-daemon --stacktrace
+
+      - name: Rename APK
+        working-directory: apps/mobile/android/app/build/outputs/apk/release
+        run: |
+          cp app-release.apk "awakeos-${{ github.sha }}.apk"
+          ls -lh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: awakeos-test-apk
+          path: apps/mobile/android/app/build/outputs/apk/release/awakeos-*.apk
+          retention-days: 14
+          if-no-files-found: error

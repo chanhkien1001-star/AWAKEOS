@@ -1,3 +1,7 @@
+// Polyfill Node-shaped crypto / Buffer / stream before anything else loads.
+import { install } from 'react-native-quick-crypto';
+install();
+
 import { AppRegistry } from 'react-native';
 import { AwakeApp } from './src/AwakeApp.tsx';
 import { name as appName } from './app.json';
