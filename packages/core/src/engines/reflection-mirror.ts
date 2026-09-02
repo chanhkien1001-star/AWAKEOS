@@ -1,73 +1,105 @@
 /**
- * STAGE 8 — [REFLECTION]   (pure)   ***STUB AGGREGATION***
+ * STAGE 8 — [REFLECTION]   (pure)
  *
- * Builds a ReflectionMirror: observable facts over a time range, nothing else.
+ * `buildReflectionMirror` reconstructs a `ReflectionMirror` from persisted
+ * `PatternObservation`s over a time range. It is a mirror and nothing more:
+ * observable structural facts, grouped, counted, described neutrally.
  *
- * Invariants enforced here:
- *  - I-07 Reflection, Not Judgment: output is run through `assertNoJudgment`. No
- *    scores, no streaks, no "good/bad", no interpretive words.
- *  - I-06 No Dependency Replacement: this is generated on demand, not a feed.
- *
- * Grouping/summary wording here is placeholder for Step 5.
+ * Invariants:
+ *  - I-07 Reflection, Not Judgment — output passes `assertNoJudgment`; facts are
+ *    ordered by time-of-day frame (a neutral structural order), NEVER by count
+ *    (that would rank behaviours). No score, no streak, no "good / bad".
+ *  - I-06 No Dependency Replacement — generated on demand from the local store,
+ *    not a feed.
+ *  - I-02 — a `PatternObservation` carries only structure (category, structural
+ *    name, deviation ratio, when). It is the compact, persistable trace of a
+ *    detected `Pattern`.
  */
 
-import type { Context, TimeFrameBoundary } from '../contracts/context.contract.ts';
-import type { Pattern } from '../contracts/pattern.contract.ts';
+import type { TimeFrameBoundary } from '../contracts/context.contract.ts';
+import type { PatternCategory } from '../contracts/pattern.contract.ts';
 import type { ReflectionMirror } from '../contracts/reflection.contract.ts';
 import { assertNoJudgment, assertNonCoerciveText } from '../invariants/invariants.ts';
 import type { Clock } from '../util/clock.ts';
 import type { IdFactory } from '../util/id.ts';
 
-export interface ReflectionSample {
-  readonly pattern: Pattern;
-  readonly context: Context;
+/** The compact, persistable structural trace of one detected Pattern. */
+export interface PatternObservation {
+  readonly patternId: string;
+  /** When the observed behaviour occurred (the Context timestamp) — used for range queries and retention. */
+  readonly observedAt: number;
+  readonly category: PatternCategory;
+  readonly structuralName: string;
+  readonly deviationFromBaselineRatio: number;
+  readonly timeFrame: TimeFrameBoundary;
+  readonly dayOfWeek: number; // ISO 1-7
+  readonly isUserDefinedRestPeriod: boolean;
 }
 
 export interface ReflectionRequest {
-  readonly samples: readonly ReflectionSample[];
+  readonly observations: readonly PatternObservation[];
   readonly timeRangeStart: number;
   readonly timeRangeEnd: number;
 }
+
+const TIME_FRAME_ORDER: readonly TimeFrameBoundary[] = [
+  '00:00-06:00',
+  '06:00-12:00',
+  '12:00-18:00',
+  '18:00-24:00',
+];
 
 function dominantTimeFrame(frames: readonly TimeFrameBoundary[]): TimeFrameBoundary | null {
   if (frames.length === 0) return null;
   const tally = new Map<TimeFrameBoundary, number>();
   for (const f of frames) tally.set(f, (tally.get(f) ?? 0) + 1);
-  return [...tally.entries()].sort((a, b) => b[1] - a[1])[0]![0];
+  // ties broken by earliest time frame, so the order is deterministic and neutral
+  return [...tally.entries()].sort(
+    (a, b) => b[1] - a[1] || TIME_FRAME_ORDER.indexOf(a[0]) - TIME_FRAME_ORDER.indexOf(b[0]),
+  )[0]![0];
 }
 
-export function buildReflectionMirror(
-  req: ReflectionRequest,
-  ids: IdFactory,
-  clock: Clock,
-): ReflectionMirror {
-  const inRange = req.samples.filter(
-    (s) => s.context.timestamp >= req.timeRangeStart && s.context.timestamp < req.timeRangeEnd,
+export function buildReflectionMirror(req: ReflectionRequest, ids: IdFactory, clock: Clock): ReflectionMirror {
+  const inRange = req.observations.filter(
+    (o) => o.observedAt >= req.timeRangeStart && o.observedAt < req.timeRangeEnd,
   );
 
-  const byName = new Map<string, ReflectionSample[]>();
-  for (const s of inRange) {
-    (byName.get(s.pattern.structuralName) ?? byName.set(s.pattern.structuralName, []).get(s.pattern.structuralName)!)
-      .push(s);
+  const byName = new Map<string, PatternObservation[]>();
+  for (const o of inRange) {
+    const bucket = byName.get(o.structuralName) ?? [];
+    bucket.push(o);
+    byName.set(o.structuralName, bucket);
   }
 
-  const observableFacts = [...byName.entries()].map(([patternName, samples]) => {
-    const frames = samples.map((s) => s.context.temporal.timeFrame);
-    const days = new Set(samples.map((s) => s.context.temporal.dayOfWeek)).size;
-    const dom = dominantTimeFrame(frames);
-    const contextSummary = dom
-      ? `Most often in the ${dom} time frame, across ${days} day(s).`
-      : `Across ${days} day(s).`;
+  const facts = [...byName.entries()].map(([patternName, group]) => {
+    const dom = dominantTimeFrame(group.map((o) => o.timeFrame));
+    const days = new Set(group.map((o) => o.dayOfWeek)).size;
+    const inRest = group.some((o) => o.isUserDefinedRestPeriod);
+    const where = dom ? `most often in the ${dom} time frame` : 'across the range';
+    const rest = inRest ? ', including during a period you marked as rest' : '';
+    const contextSummary = `Recorded ${where}, on ${days} day${days === 1 ? '' : 's'}${rest}.`;
     assertNonCoerciveText(contextSummary);
-    return { patternName, occurrenceCount: samples.length, contextSummary };
+    return {
+      patternName,
+      occurrenceCount: group.length,
+      contextSummary,
+      _sortKey: dom ? TIME_FRAME_ORDER.indexOf(dom) : TIME_FRAME_ORDER.length,
+    };
   });
+
+  // Neutral order: by time-of-day frame, then name. Never by occurrenceCount.
+  facts.sort((a, b) => a._sortKey - b._sortKey || a.patternName.localeCompare(b.patternName));
 
   const mirror: ReflectionMirror = {
     id: ids.uuid(),
     generatedAt: clock.now(),
     timeRangeStart: req.timeRangeStart,
     timeRangeEnd: req.timeRangeEnd,
-    observableFacts,
+    observableFacts: facts.map(({ patternName, occurrenceCount, contextSummary }) => ({
+      patternName,
+      occurrenceCount,
+      contextSummary,
+    })),
   };
 
   assertNoJudgment(mirror); // I-07 hard guard

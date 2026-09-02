@@ -154,12 +154,47 @@ pipeline ─present(window,intervention)→ createAwarenessWindowChoiceProvider
 - The Return: `return-moment.ts` view-model + `ReturnMoment.tsx` (black screen,
   "You are here", one haptic beat, 2 s auto-dismiss, tap to skip — no rewards, I-10).
 
+### Stage 8 detail — Reflection Mirror & local-first storage
+
+- `pattern-detector` output is persisted per detection as a compact
+  `PatternObservation` (`{ observedAt, category, structuralName,
+  deviationFromBaselineRatio, timeFrame, dayOfWeek, isUserDefinedRestPeriod }`) —
+  structure only, no score.
+- `reflection-mirror.ts` — `buildReflectionMirror({ observations, range })`:
+  groups by structural name, counts, describes each group neutrally. Facts are
+  ordered by **time-of-day frame** (a neutral structural order), NEVER by count
+  (ranking is I-07). `assertNoJudgment` guards the result.
+- `pipeline.reflect(start, end)` reads observations back from the store and
+  rebuilds the mirror — it survives a restart.
+- `app/reflection-mirror/`: `reflection-range.ts` (calendar-window presets, no
+  streaks), `reflection-mirror-render.ts` (`describeReflectionMirrorRender` — one
+  shared row style, plain-text counts, order preserved, `assertNoJudgment`
+  re-checked), `ReflectionMirror.tsx` (plain rows, calm empty state).
+
+**Local-first storage** (`core/storage/`):
+
+```
+LocalStore  ──createPersistentLocalStore──▶ StorageBackend (bytes)  +  EncryptionPort
+   (events, choices, intervention records,     MMKV / SQLite / files     AES-256-GCM
+    pattern observations, reflections)         (app sandbox, no network)  key in keystore
+```
+
+- Every record is JSON → `encrypt` → backend; the backend only ever holds
+  ciphertext. Logs are lazily loaded once and served from memory.
+- `prune(now)` enforces `RetentionPolicy`: raw events 30 d, choices 30 d,
+  intervention records 14 d, pattern observations 180 d, reflections 365 d.
+  Retention deletion is one-way and privacy-positive (I-09).
+- App adapters: `createMmkvStorageBackend(mmkv)` and
+  `createAesGcmEncryption({ subtle, random, keyBytes })` (standard WebCrypto;
+  Node and `react-native-quick-crypto` both satisfy it).
+
 ## Ports (the only seams)
 
 `core/pipeline/ports.ts`: `EventSource`, `ChoiceProvider`, `LocalStore` (events,
-choices, **intervention records**, reflections), `PipelineTelemetry`. The core
-imports no platform SDK, UI toolkit, or database. Stub implementations live in
-`core/adapters-stub/` (used by tests and the E2E demo run).
+choices, **intervention records**, **pattern observations**, reflections),
+`PipelineTelemetry`. `core/storage/ports.ts`: `StorageBackend`, `EncryptionPort`.
+The core imports no platform SDK, UI toolkit, or database. Stub implementations
+live in `core/adapters-stub/`.
 
 ## Invariant enforcement in code
 
@@ -170,7 +205,7 @@ other modules call — a guard throwing means the caller is wrong:
 |-------|-----------|-------------|
 | `assertStructuralName` | I-11, I-07 | `pattern-detector` on every `structuralName` (`baseline`/`session-segmenter` emit metrics only) |
 | `assertNonCoerciveText` | I-12, I-10, I-07 | `intervention-factory`, `awareness-window.viewmodel` |
-| `assertNoJudgment` | I-07 | `reflection-mirror`, `reflection-mirror.viewmodel` |
+| `assertNoJudgment` | I-07 | `reflection-mirror`, `reflection-mirror.viewmodel` + re-checked in `reflection-mirror-render.ts` |
 | `assertChoiceSymmetry` | I-13 | `app/awareness-window/choice-symmetry.ts` + re-checked in `awareness-window-render.ts` |
 | `assertNonCoerciveText` | I-12 | also re-checked in `awareness-window-render.ts` before pixels |
 | `assertReversible` | I-08 | `intervention-factory` on every modality; controller `dismiss()` is always live |
@@ -179,9 +214,10 @@ other modules call — a guard throwing means the caller is wrong:
 
 ```
 packages/
-  core/      Pure TS. Contracts + invariants + ingestion + engines + pipeline. Zero runtime deps.
+  core/      Pure TS. Contracts + invariants + ingestion + engines + pipeline + storage. Zero runtime deps.
   adapters/  Native Event collectors — Android (Kotlin) & iOS (Swift) reference impl.
-  app/       Shell UI. View-models + ingestion bridge + baseline provider (.ts, tested) + RN stubs (.tsx).
+  app/       Shell UI. View-models + controllers + render descriptors + ingestion/storage adapters
+             (.ts, tested) + RN components (.tsx, translated in a host app).
 ```
 
 ## Implementation order
@@ -195,7 +231,11 @@ packages/
 4. ✅ **Awareness Window & Choice Symmetry UI** — tested controller +
    render descriptor + `ChoiceProvider` adapter; RN `AwarenessWindow.tsx` /
    `AwarenessWindowHost.tsx` / `ReturnMoment.tsx` translate them.
-5. **Reflection Mirror** — on-device encrypted store + non-judgmental facts UI.
+5. ✅ **Reflection Mirror** — `PatternObservation`s persisted; `buildReflectionMirror`
+   rebuilds from the store; `createPersistentLocalStore` (encrypted, retention/prune)
+   with MMKV + AES-GCM app adapters; render descriptor + `ReflectionMirror.tsx`.
 
-The scaffold runs all 8 stages end-to-end today through stub adapters; see
-`packages/core/tests/pipeline.e2e.test.ts`.
+All five steps have real logic. The engine runs end-to-end through the pure core
+and stub adapters; the platform-native pieces (Kotlin/Swift collectors, RN
+components) are complete reference code compiled in a host app. See
+`packages/core/tests/*.e2e.test.ts`.

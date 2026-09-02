@@ -9,17 +9,20 @@
 import type { Event } from '../contracts/event.contract.ts';
 import type { HumanChoice } from '../contracts/human-choice.contract.ts';
 import type { ReflectionMirror } from '../contracts/reflection.contract.ts';
+import type { PatternObservation } from '../engines/reflection-mirror.ts';
 import type { InterventionRecord, LocalStore } from '../pipeline/ports.ts';
 
 export function createMemoryStore(): LocalStore & {
   readonly _events: readonly Event[];
   readonly _choices: readonly HumanChoice[];
   readonly _interventions: readonly InterventionRecord[];
+  readonly _observations: readonly PatternObservation[];
   readonly _reflections: readonly ReflectionMirror[];
 } {
   const events: Event[] = [];
   const choices: HumanChoice[] = [];
   const interventions: InterventionRecord[] = [];
+  const observations: PatternObservation[] = [];
   const reflections: ReflectionMirror[] = [];
 
   return {
@@ -34,6 +37,10 @@ export function createMemoryStore(): LocalStore & {
       interventions.push(record);
       interventions.sort((a, b) => a.triggeredAt - b.triggeredAt);
     },
+    async appendPatternObservation(observation) {
+      observations.push(observation);
+      observations.sort((a, b) => a.observedAt - b.observedAt);
+    },
     async saveReflection(mirror) {
       reflections.push(mirror);
     },
@@ -46,6 +53,9 @@ export function createMemoryStore(): LocalStore & {
     async readInterventionRecords(startMs, endMs) {
       return interventions.filter((r) => r.triggeredAt >= startMs && r.triggeredAt < endMs);
     },
+    async readPatternObservations(startMs, endMs) {
+      return observations.filter((o) => o.observedAt >= startMs && o.observedAt < endMs);
+    },
     get _events() {
       return events;
     },
@@ -54,6 +64,9 @@ export function createMemoryStore(): LocalStore & {
     },
     get _interventions() {
       return interventions;
+    },
+    get _observations() {
+      return observations;
     },
     get _reflections() {
       return reflections;

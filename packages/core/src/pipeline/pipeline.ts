@@ -35,7 +35,7 @@ import {
   type ArbiterConfig,
   type SuppressedPattern,
 } from '../engines/pattern-arbiter.ts';
-import { buildReflectionMirror, type ReflectionSample } from '../engines/reflection-mirror.ts';
+import { buildReflectionMirror } from '../engines/reflection-mirror.ts';
 
 import type { Clock } from '../util/clock.ts';
 import type { IdFactory } from '../util/id.ts';
@@ -142,9 +142,9 @@ export function createPipeline(deps: PipelineDeps): Pipeline {
   };
   const tel = deps.telemetry ?? noopTelemetry;
 
-  // The pipeline holds no fatigue state of its own: intervention history is
-  // persisted to the local store and re-read each event (I-09).
-  const reflectionSamples: ReflectionSample[] = [];
+  // The pipeline holds no state of its own. Fatigue history and the structural
+  // record behind the Reflection mirror are both persisted to the local store
+  // and re-read on demand (I-09).
 
   async function processEvent(event: Event, baseline: BehavioralBaseline): Promise<PipelineOutcome> {
     await deps.store.appendEvent(event); // I-09: persist locally first
@@ -158,9 +158,20 @@ export function createPipeline(deps: PipelineDeps): Pipeline {
 
     // Stage 3 — PATTERN (compared against the person's own baseline)
     const patterns = detectPatterns(preceding, context, baseline, deps.ids, deps.clock, cfg.pattern);
-    // The Reflection mirror is a neutral mirror of structure: record every
+    // The Reflection mirror is a neutral mirror of structure: persist every
     // detected pattern, independent of what arbitration / the policy acts on.
-    for (const p of patterns) reflectionSamples.push({ pattern: p, context });
+    for (const p of patterns) {
+      await deps.store.appendPatternObservation({
+        patternId: p.id,
+        observedAt: context.timestamp,
+        category: p.category,
+        structuralName: p.structuralName,
+        deviationFromBaselineRatio: p.metrics.deviationFromBaselineRatio,
+        timeFrame: context.temporal.timeFrame,
+        dayOfWeek: context.temporal.dayOfWeek,
+        isUserDefinedRestPeriod: context.temporal.isUserDefinedRestPeriod,
+      });
+    }
 
     // Stage 3/4 — ARBITRATION: one event -> at most one structure to act on.
     const { selected: pattern, suppressed } = arbitratePatterns(patterns, context, cfg.arbiter);
@@ -251,9 +262,10 @@ export function createPipeline(deps: PipelineDeps): Pipeline {
     },
 
     async reflect(startMs, endMs) {
-      // Stage 8 — REFLECTION
+      // Stage 8 — REFLECTION, rebuilt from the persisted structural record.
+      const observations = await deps.store.readPatternObservations(startMs, endMs);
       const mirror = buildReflectionMirror(
-        { samples: reflectionSamples, timeRangeStart: startMs, timeRangeEnd: endMs },
+        { observations, timeRangeStart: startMs, timeRangeEnd: endMs },
         deps.ids,
         deps.clock,
       );

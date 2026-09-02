@@ -16,5 +16,12 @@ export * from './awareness-window/awareness-window-controller.ts';
 export * from './awareness-window/awareness-window-render.ts';
 export * from './awareness-window/choice-provider-adapter.ts';
 
+// Stage 8 — Reflection Mirror
 export * from './reflection-mirror/reflection-mirror.viewmodel.ts';
+export * from './reflection-mirror/reflection-mirror-render.ts';
+export * from './reflection-mirror/reflection-range.ts';
+
+// Local-first storage adapters
+export * from './storage/index.ts';
+
 export * from './return-moment/return-moment.ts';

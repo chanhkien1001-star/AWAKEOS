@@ -11,6 +11,7 @@ import type { Intervention, AwarenessWindow } from '../contracts/intervention.co
 import type { HumanChoice } from '../contracts/human-choice.contract.ts';
 import type { ReflectionMirror } from '../contracts/reflection.contract.ts';
 import type { PriorInterventionSummary } from '../engines/fatigue.ts';
+import type { PatternObservation } from '../engines/reflection-mirror.ts';
 
 /**
  * Emits normalized Event objects observed from the OS.
@@ -52,12 +53,15 @@ export interface LocalStore {
   appendEvent(event: Event): Promise<void>;
   appendChoice(choice: HumanChoice): Promise<void>;
   appendInterventionRecord(record: InterventionRecord): Promise<void>;
+  appendPatternObservation(observation: PatternObservation): Promise<void>;
   saveReflection(mirror: ReflectionMirror): Promise<void>;
   /** Events within [start, end) ms, oldest first. */
   readEvents(startMs: number, endMs: number): Promise<readonly Event[]>;
   readChoices(startMs: number, endMs: number): Promise<readonly HumanChoice[]>;
   /** Intervention records with `triggeredAt` within [start, end) ms, oldest first. */
   readInterventionRecords(startMs: number, endMs: number): Promise<readonly InterventionRecord[]>;
+  /** Pattern observations with `detectedAt` within [start, end) ms, oldest first. */
+  readPatternObservations(startMs: number, endMs: number): Promise<readonly PatternObservation[]>;
 }
 
 /** Optional structured trace of every stage, including each Silence (I-04). */

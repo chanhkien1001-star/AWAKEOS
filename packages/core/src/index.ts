@@ -36,7 +36,12 @@ export * from './pipeline/pipeline.ts';
 export * from './util/clock.ts';
 export * from './util/id.ts';
 
-// Stub adapters (replace in Steps 1-5; handy for tests and demos)
+// Local-first storage
+export * from './storage/ports.ts';
+export * from './storage/persistent-local-store.ts';
+
+// Stub adapters (replace with platform ones; handy for tests and demos)
 export { createMemoryStore } from './adapters-stub/memory-store.ts';
 export { createScriptedEventSource, createSteppedEventSource } from './adapters-stub/scripted-event-source.ts';
 export { createScriptedChoiceProvider, type ScriptedChoice } from './adapters-stub/scripted-choice-provider.ts';
+export { createInMemoryStorageBackend, identityEncryption, xorEncryption } from './adapters-stub/storage-stubs.ts';
