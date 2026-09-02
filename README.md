@@ -37,7 +37,7 @@ Read [`docs/SPECIFICATION.md`](docs/SPECIFICATION.md) (the frozen source spec) a
 | **Onboarding + permission copy** | ✅ `ONBOARDING_STEPS` + `describeUsageAccessRequest` — all strings guarded non-coercive at load |
 | **Runnable demo** | ✅ `npm run demo` — narrated end-to-end run on synthetic usage; covered by a CI smoke test |
 | **CI** | ✅ `.github/workflows/ci.yml` — typecheck + tests + demo on push/PR |
-| **Mobile host** | 📄 `apps/mobile/` — screens (`OnboardingScreen`, `UsageAccessScreen`, `SettingsScreen`, routed `AwakeApp`) + wiring; needs `npx react-native init` for the `android/` project |
+| **Mobile host** | 📄 `apps/mobile/` — full RN project: screens + wiring + `android/` Gradle project + native Event Collector + manifest (no `INTERNET` in release) + adaptive icon. `npm install` + generate the Gradle wrapper jar → `npm run android` ([SETUP.md](apps/mobile/SETUP.md)) |
 | **Play Store release** | 📄 `docs/RELEASE.md` + `docs/PRIVACY.md` + `docs/PLAY-PERMISSIONS.md` |
 
 ## Layout

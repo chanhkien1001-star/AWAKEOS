@@ -5,7 +5,8 @@
   "description": "Shell / UI layer. Framework-agnostic view-models (.ts, compiled + tested) plus React Native component stubs (.tsx, wired up in Step 4).",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./*": "./src/*"
   },
   "scripts": {
     "test": "node --test \"tests/**/*.test.ts\"",

@@ -14,6 +14,19 @@ packages/adapters/ios/build/
 packages/adapters/ios/Pods/
 *.xcworkspace/xcuserdata/
 
+# apps/mobile — RN / Android build outputs & local secrets
+apps/mobile/node_modules/
+apps/mobile/.gradle/
+apps/mobile/android/.gradle/
+apps/mobile/android/build/
+apps/mobile/android/app/build/
+apps/mobile/android/app/debug.keystore
+apps/mobile/android/app/*.jks
+apps/mobile/android/local.properties
+apps/mobile/**/*.keystore
+apps/mobile/ios/
+.cxx/
+
 # logs
 *.log
 npm-debug.log*

@@ -34,44 +34,24 @@ and Google's review of the Usage Access permission.
 
 ---
 
-## Part B — turn the repo into a runnable Android app  **[both]**
+## Part B — the Android app  **[both]**
 
-The engine (`@awake-os/core`, `@awake-os/app`) is done and tested. What's missing
-is the React Native host project.
+The full RN project already lives in [`apps/mobile/`](../apps/mobile) — screens,
+`android/` Gradle project, native Event Collector, manifest (no `INTERNET` in
+release), adaptive icon. Only the Gradle wrapper **jar** (binary) is missing.
 
-1. On a machine with **JDK 17** + **Android Studio** (SDK Platform 35,
-   Build-Tools, an emulator or a USB-debugging phone):
+Follow [`apps/mobile/SETUP.md`](../apps/mobile/SETUP.md):
 
-   ```bash
-   npx @react-native-community/cli init AwakeOS --pm npm
-   cd AwakeOS
-   ```
+1. `cd apps/mobile && npm install`
+2. Generate the wrapper: open `apps/mobile/android` in Android Studio (it offers
+   to), or `cd android && gradle wrapper --gradle-version 8.10.2`.
+3. Create `android/app/debug.keystore` (command in SETUP.md).
+4. `npm start` + `npm run android` on a device/emulator.
+5. On the phone: **Settings → Usage access → AwakeOS → Allow** (or the in-app
+   button).
 
-2. Add the engine (from a local checkout of this repo, or publish the two
-   packages privately):
-
-   ```bash
-   npm i ../AWAKE-OS/packages/core ../AWAKE-OS/packages/app   # file: deps
-   npm i react-native-mmkv react-native-quick-crypto react-native-keychain
-   ```
-
-3. Copy in the app files from this repo's `apps/mobile/src/` (`bootstrap.ts`,
-   `AwakeApp.tsx`, and the onboarding / settings / permission screens) and
-   replace `index.js`.
-
-4. **Integrate the native Event Collector** (`packages/adapters/android/`):
-   - copy `src/main/java/os/awake/collector/*` into
-     `android/app/src/main/java/os/awake/collector/`;
-   - register it — in `MainApplication.kt` `getPackages()` add
-     `add(AwakeEventCollectorPackage())`;
-   - merge the `<uses-permission>` lines from
-     `packages/adapters/android/src/main/AndroidManifest.xml` into
-     `android/app/src/main/AndroidManifest.xml`;
-   - add `androidx.security:security-crypto` and the kotlinx-coroutines dep to
-     `android/app/build.gradle`.
-
-5. `npm run android` on a connected device. On the phone: **Settings → Usage
-   access → AwakeOS → Allow** (or the app's in-built prompt).
+Toolchain: **JDK 17**, Android Studio with SDK Platform **34**, Build-Tools
+**34.0.0**, NDK **26.1.10909125**. `minSdk` is 29.
 
 ---
 
@@ -157,11 +137,12 @@ You still need Part B done once so `apps/mobile/` is a real project with an
 
 ## What is NOT ready yet
 
-- `apps/mobile/` has the app screens (`OnboardingScreen`, `UsageAccessScreen`,
-  `SettingsScreen`, routed `AwakeApp`) and wiring — but **no `android/` project
-  yet** (Part B step 1: `npx @react-native-community/cli init`).
-- No launcher icon / store graphics — see `apps/mobile/assets/README.md`.
+- The Gradle wrapper **jar** is not committed (binary) — 1 command, see
+  `apps/mobile/SETUP.md`.
+- The Play Store **listing icon** (512×512 PNG) and feature graphic must be
+  authored — the in-app launcher icon is a vector adaptive icon and is done.
+  See `apps/mobile/assets/README.md`.
 - The settings "observed apps" allow-list has no app-picker UI yet (defaults to
   "observe all"; the consent filter itself works).
-- The engine, settings model, onboarding/permission copy, consent filter, and
-  "erase all data" are all built and tested.
+- Everything else — engine, screens, native module, manifest, signing config —
+  is in place and tested.

@@ -9,8 +9,8 @@ import { AppState, Pressable, SafeAreaView, StyleSheet, Text, View } from 'react
 
 import type { AwakeRuntime, AwarenessWindowPresenter, SettingsStore, UserSettings } from '@awake-os/app';
 import { createAwakeRuntime, createSettingsStore } from '@awake-os/app';
-import { AwarenessWindowHost } from '@awake-os/app/src/awareness-window/AwarenessWindowHost.tsx';
-import { ReflectionMirror } from '@awake-os/app/src/reflection-mirror/ReflectionMirror.tsx';
+import { AwarenessWindowHost } from '@awake-os/app/awareness-window/AwarenessWindowHost.tsx';
+import { ReflectionMirror } from '@awake-os/app/reflection-mirror/ReflectionMirror.tsx';
 
 import { buildRuntimeDeps, buildStorage } from './bootstrap.ts';
 import { OnboardingScreen } from './OnboardingScreen.tsx';
