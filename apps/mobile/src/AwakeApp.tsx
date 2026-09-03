@@ -5,7 +5,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
+import { AppState, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import type { AwakeRuntime, AwarenessWindowPresenter, SettingsStore, UserSettings } from '@awake-os/app';
 import { createAwakeRuntime, createSettingsStore } from '@awake-os/app';
@@ -27,26 +27,38 @@ export function AwakeApp() {
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [runtime, setRuntime] = useState<AwakeRuntime | null>(null);
   const [route, setRoute] = useState<Route>('loading');
+  const [initError, setInitError] = useState<string | null>(null);
+  const fail = (where: string) => (e: unknown) =>
+    setInitError(`[${where}] ${e instanceof Error ? `${e.message}\n\n${e.stack ?? ''}` : String(e)}`);
 
   // 1. storage + settings
   useEffect(() => {
-    const { backend, encryption } = buildStorage();
-    Promise.resolve(encryption).then((enc) => {
-      const store = createSettingsStore({ backend, encryption: enc });
-      setSettingsStore(store);
-      store.read().then((s) => {
-        setSettings(s);
-        setRoute(s.onboardingComplete ? 'main' : 'onboarding');
-      });
-    });
+    try {
+      const { backend, encryption } = buildStorage();
+      Promise.resolve(encryption)
+        .then(async (enc) => {
+          const store = createSettingsStore({ backend, encryption: enc });
+          setSettingsStore(store);
+          const s = await store.read();
+          setSettings(s);
+          setRoute(s.onboardingComplete ? 'main' : 'onboarding');
+        })
+        .catch(fail('storage/settings'));
+    } catch (e) {
+      fail('buildStorage')(e);
+    }
   }, []);
 
   // 2. runtime — (re)built whenever settings change
   const rebuild = useCallback(
     async (s: UserSettings) => {
       if (!settingsStore) return;
-      const deps = await buildRuntimeDeps(presenterRef.current!, settingsStore, s);
-      setRuntime(createAwakeRuntime(deps));
+      try {
+        const deps = await buildRuntimeDeps(presenterRef.current!, settingsStore, s);
+        setRuntime(createAwakeRuntime(deps));
+      } catch (e) {
+        fail('buildRuntime')(e);
+      }
     },
     [settingsStore],
   );
@@ -74,10 +86,24 @@ export function AwakeApp() {
     setRoute('usage-access');
   };
 
+  if (initError) {
+    return (
+      <SafeAreaView style={styles.root}>
+        <ScrollView contentContainerStyle={styles.errPad}>
+          <Text style={styles.errTitle}>AwakeOS init error</Text>
+          <Text style={styles.errBody} selectable>
+            {initError}
+          </Text>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.root}>
       <AwarenessWindowHost ref={presenterRef} />
 
+      {route === 'loading' && <Text style={styles.loading}>Starting…</Text>}
       {route === 'onboarding' && <OnboardingScreen onDone={completeOnboarding} />}
       {route === 'usage-access' && <UsageAccessScreen onContinue={() => setRoute('main')} />}
 
@@ -118,4 +144,8 @@ const styles = StyleSheet.create({
   gear: { alignSelf: 'flex-end', padding: 14 },
   back: { position: 'absolute', top: 8, right: 8, padding: 12 },
   gearText: { color: '#9db4ff', fontSize: 14 },
+  loading: { color: '#8a8a8a', fontSize: 14, padding: 24 },
+  errPad: { padding: 20 },
+  errTitle: { color: '#ff8a8a', fontSize: 16, marginBottom: 12 },
+  errBody: { color: '#d0d0d0', fontSize: 12, fontFamily: 'monospace' },
 });
