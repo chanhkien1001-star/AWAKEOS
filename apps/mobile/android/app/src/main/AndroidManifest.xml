@@ -7,10 +7,6 @@
         android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
 
-    <!-- Keeps the UsageStats poller alive while opted in. -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
-
     <!-- Local haptics for the Awareness Window / The Return. -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
@@ -23,8 +19,6 @@
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:allowBackup="false"
-        android:fullBackupContent="false"
-        android:dataExtractionRules="@xml/data_extraction_rules"
         android:theme="@style/AppTheme"
         android:supportsRtl="true">
         <activity
