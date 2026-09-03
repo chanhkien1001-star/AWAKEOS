@@ -25,11 +25,13 @@ android {
     namespace "com.awakeos"
 
     defaultConfig {
-        applicationId "com.awakeos"
+        // Fresh id: a previous crashed install of com.awakeos can leave a
+        // "ghost" package record on Transsion ROMs that blocks reinstalling.
+        applicationId "os.awake.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "0.1.0"
+        versionCode 2
+        versionName "0.1.1"
         ndk {
             abiFilters(*reactNativeArchitectures())
         }
