@@ -112,6 +112,17 @@ jobs:
           cp app-release.apk "awakeos-${GITHUB_SHA::7}.apk"
           ls -lh awakeos-*.apk
 
+      - name: Inspect the APK
+        working-directory: apps/mobile/android/app/build/outputs/apk/release
+        run: |
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          echo "== badging =="
+          "$BT/aapt2" dump badging app-release.apk | grep -E "package:|sdkVersion:|targetSdkVersion:|native-code|application-label:" || true
+          echo "== native libs =="
+          unzip -l app-release.apk | grep -E "lib/.*\.so" | awk '{print $4}' | sed 's#/[^/]*$##' | sort -u || echo "(no lib/*.so)"
+          echo "== signature =="
+          "$BT/apksigner" verify --verbose --print-certs app-release.apk 2>&1 | grep -E "Verified using|Signer #1 certificate DN|number of signers" || true
+
       - uses: actions/upload-artifact@v4
         with:
           name: awakeos-test-apk
