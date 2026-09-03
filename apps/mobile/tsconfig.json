@@ -6,7 +6,7 @@
     "paths": {
       "@awake-os/core": ["../../packages/core/src/index.ts"],
       "@awake-os/app": ["../../packages/app/src/index.ts"],
-      "@awake-os/app/*": ["../../packages/app/src/*"]
+      "@awake-os/app/*": ["../../packages/app/*"]
     }
   },
   "include": ["src", "index.js", "*.d.ts"]
