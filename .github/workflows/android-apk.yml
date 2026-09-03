@@ -68,7 +68,17 @@ jobs:
           gradle wrapper --gradle-version 8.10.2 --distribution-type bin
           chmod +x gradlew
 
-      - name: Debug keystore (fallback signer for the test APK)
+      # Cache the keystore so every build is signed with the SAME key — otherwise
+      # Android refuses to install a new APK over the previous one.
+      - name: Restore debug keystore
+        id: keystore
+        uses: actions/cache@v4
+        with:
+          path: apps/mobile/android/app/debug.keystore
+          key: awakeos-debug-keystore-v1
+
+      - name: Create debug keystore (first run only)
+        if: steps.keystore.outputs.cache-hit != 'true'
         working-directory: apps/mobile/android/app
         run: |
           keytool -genkeypair -v -storetype PKCS12 -keystore debug.keystore \
