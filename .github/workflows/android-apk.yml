@@ -97,8 +97,11 @@ jobs:
       - name: Rename APK
         working-directory: apps/mobile/android/app/build/outputs/apk/release
         run: |
-          cp app-release.apk "awakeos-${{ github.sha }}.apk"
           ls -lh
+          # ABI splits produce app-<abi>-release.apk (no universal APK).
+          src=$(ls app-*-release.apk app-release.apk 2>/dev/null | head -n1)
+          cp "$src" "awakeos-${GITHUB_SHA::7}.apk"
+          ls -lh awakeos-*.apk
 
       - uses: actions/upload-artifact@v4
         with:

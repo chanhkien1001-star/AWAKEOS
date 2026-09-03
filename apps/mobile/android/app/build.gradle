@@ -9,12 +9,27 @@ react {
 def enableProguardInReleaseBuilds = true
 def jscFlavor = 'org.webkit:android-jsc:+'
 
+// -PreactNativeArchitectures=arm64-v8a builds a single, small APK.
+def reactNativeArchitectures() {
+    def value = project.getProperties().get("reactNativeArchitectures")
+    return value ? value.split(",") : ["armeabi-v7a", "arm64-v8a", "x86", "x86_64"]
+}
+
 android {
     ndkVersion rootProject.ext.ndkVersion
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
     namespace "com.awakeos"
+
+    splits {
+        abi {
+            reset()
+            enable true
+            universalApk false
+            include(*reactNativeArchitectures())
+        }
+    }
     defaultConfig {
         applicationId "com.awakeos"
         minSdkVersion rootProject.ext.minSdkVersion
